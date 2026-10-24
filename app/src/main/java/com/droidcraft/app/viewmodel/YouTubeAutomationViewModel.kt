@@ -73,34 +73,44 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
+    private val prefs = application.getSharedPreferences("droidcraft", android.content.Context.MODE_PRIVATE)
+    private val _geminiKey = MutableStateFlow(prefs.getString("gemini_key", "") ?: "")
+    val geminiKey: StateFlow<String> = _geminiKey.asStateFlow()
+
+    private val _isThinking = MutableStateFlow(false)
+    val isThinking: StateFlow<Boolean> = _isThinking.asStateFlow()
+
+    fun saveGeminiKey(key: String) {
+        val k = key.trim()
+        prefs.edit().putString("gemini_key", k).apply()
+        _geminiKey.value = k
+    }
+
     fun sendAssistantMessage(userText: String) {
         val userMsg = ChatMessage(id = System.currentTimeMillis().toString(), text = userText, isUser = true)
         _assistantMessages.value = _assistantMessages.value + userMsg
-
+        val key = _geminiKey.value
+        if (key.isBlank()) {
+            addBotMessage("Pehle upar Gemini API key daaliye (aistudio.google.com/apikey se free milti hai).")
+            return
+        }
         viewModelScope.launch {
+            _isThinking.value = true
             try {
-                val response = apiService.dispatchAiCommand(
-                    AssistantRequest(message = userText, channelId = _selectedChannel.value?.id)
-                )
-                val replyMsg = ChatMessage(
-                    id = (System.currentTimeMillis() + 1).toString(),
-                    text = response.reply,
-                    isUser = false,
-                    action = response.action
-                )
-                _assistantMessages.value = _assistantMessages.value + replyMsg
-
-                if (response.requiresConfirmation && response.confirmationMessage != null) {
-                    _pendingConfirmation.value = ConfirmationDialogState(
-                        action = response.action ?: "CONFIRM",
-                        message = response.confirmationMessage,
-                        payload = response.taskTitle
-                    )
-                }
+                val history = _assistantMessages.value.map { it.isUser to it.text }
+                val reply = com.droidcraft.app.ai.GeminiClient(key).reply(history)
+                addBotMessage(reply.ifBlank { "(Khaali jawab mila, dobara puchiye)" })
             } catch (e: Exception) {
-                // Handle failure
+                addBotMessage("Jawab nahi mil paya: ${e.message ?: "internet check kariye"}")
+            } finally {
+                _isThinking.value = false
             }
         }
+    }
+
+    private fun addBotMessage(text: String) {
+        _assistantMessages.value = _assistantMessages.value +
+            ChatMessage(id = (System.currentTimeMillis() + 1).toString(), text = text, isUser = false)
     }
 
     fun confirmPendingAction() {
