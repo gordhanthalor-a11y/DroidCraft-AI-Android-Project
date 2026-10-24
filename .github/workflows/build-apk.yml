@@ -3,16 +3,15 @@ name: Build DroidCraft Android APK
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
@@ -22,23 +21,32 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: Set up Gradle 8.10.2
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: '8.10.2'
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+      run: gradle assembleDebug --stacktrace --no-daemon 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+      shell: bash
+
+    - name: Report build errors as issue
+      if: failure()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        { echo '```'; grep -E "^e: |error:|What went wrong|> " build.log | head -120; echo; tail -60 build.log; echo '```'; } > body.md
+        gh issue create --title "Build ${{ github.run_number }} failed" --body-file body.md
 
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
-        name: DroidCraft-app-debug.apk
+        name: DroidCraft-app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
         retention-days: 14
 
     - name: Publish APK as release
-      if: github.event_name != 'pull_request'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: build-${{ github.run_number }}
