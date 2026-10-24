@@ -63,6 +63,7 @@ dependencies {
 
     // Retrofit & Networking
     implementation(libs.retrofit)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation(libs.retrofit.converter.gson)
     implementation(libs.coil.compose)
 
