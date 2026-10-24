@@ -34,7 +34,7 @@ class RedNoteLinkResolver {
                 val title = titleRegex.find(body)?.groupValues?.get(1)?.replace(" - 小红书", "") ?: "RedNote Video"
 
                 // Extract video MP4 stream
-                val mp4Regex = Regex("https?://[^\"'\s]+\\.mp4[^\"'\s]*")
+                val mp4Regex = Regex("https?://[^\"'\\s]+\\.mp4[^\"'\\s]*")
                 val streamUrl = mp4Regex.find(body)?.value
 
                 if (streamUrl != null) {
