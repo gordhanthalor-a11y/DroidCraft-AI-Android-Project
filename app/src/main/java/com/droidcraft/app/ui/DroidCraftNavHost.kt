@@ -74,9 +74,39 @@ fun AssistantScreen(
     val messages by viewModel.assistantMessages.collectAsState()
     val pending by viewModel.pendingConfirmation.collectAsState()
     var input by remember { mutableStateOf("") }
+    val savedKey by viewModel.geminiKey.collectAsState()
+    val thinking by viewModel.isThinking.collectAsState()
+    var keyInput by remember { mutableStateOf("") }
+    var editingKey by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-        Text("AI Creator Assistant", style = MaterialTheme.typography.titleLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("AI Creator Assistant", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            if (savedKey.isNotBlank()) {
+                TextButton(onClick = { editingKey = !editingKey }) { Text("API key") }
+            }
+        }
+        if (savedKey.isBlank() || editingKey) {
+            Spacer(Modifier.height(8.dp))
+            Text("Gemini API key daaliye (aistudio.google.com/apikey se free)", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = keyInput,
+                    onValueChange = { keyInput = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("AIza...") }
+                )
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = {
+                    if (keyInput.isNotBlank()) {
+                        viewModel.saveGeminiKey(keyInput)
+                        keyInput = ""
+                        editingKey = false
+                    }
+                }) { Text("Save") }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -95,6 +125,9 @@ fun AssistantScreen(
                     }
                 }
             }
+        }
+        if (thinking) {
+            Text("Soch raha hoon...", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(4.dp))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
