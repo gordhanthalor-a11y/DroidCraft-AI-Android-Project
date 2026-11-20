@@ -86,19 +86,95 @@ def _heygen(text: str, voice: str, speed: float, sentence_mode: bool) -> bytes:
 PROVIDERS = {
     "smallest": _smallest,
     "heygen": _heygen,
+    "elevenlabs": _elevenlabs,
 }
 
 
+def _elevenlabs(text: str, voice: str, speed: float, sentence_mode: bool,
+                style: float = 0.35, stability: float = 0.5) -> bytes:
+    """ElevenLabs TTS — emotion style के साथ (Bunty - Funny Best Friend default)।"""
+    api_key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not api_key:
+        raise TtsError("ElevenLabs key server पर set नहीं है (ELEVENLABS_API_KEY)")
+    voice_id = voice or "7b9mYhmnp0y2qSH1FnBL"  # Bunty - Funny Best Friend
+    sentences = [s.strip() for s in text.replace("\n", " ").split("।") if s.strip()] if sentence_mode else [text]
+    if not sentences:
+        sentences = [text]
+    client = httpx.Client(timeout=120.0)
+    chunks = []
+    for s in sentences:
+        r = client.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            headers={"xi-api-key": api_key, "Content-Type": "application/json",
+                     "accept": "audio/mpeg"},
+            json={
+                "text": s,
+                "model_id": os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2"),
+                "voice_settings": {
+                    "stability": max(0.0, min(1.0, stability)),
+                    "similarity_boost": 0.75,
+                    "style": max(0.0, min(1.0, style)),
+                    "use_speaker_boost": True,
+                },
+            },
+        )
+        if r.status_code >= 300:
+            raise TtsError(f"ElevenLabs {r.status_code}: {r.text[:200]}")
+        chunks.append(r.content)
+        if sentence_mode and len(sentences) > 1:
+            chunks.append(b"\x00" * 2400)
+
+    out = b"".join(chunks)
+    # speed adjust (भावना के अनुसार) — ffmpeg atempo
+    if abs(speed - 1.0) > 0.02:
+        out = _atempo(out, speed)
+    return out
+
+
+def _atempo(mp3: bytes, speed: float) -> bytes:
+    import subprocess, tempfile
+    from pathlib import Path
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        f.write(mp3); src = f.name
+    dst = src + ".out.mp3"
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-i", src, "-filter:a", f"atempo={max(0.5, min(2.0, speed))}",
+             "-b:a", "128k", dst],
+            capture_output=True, timeout=120,
+        )
+        if r.returncode == 0 and Path(dst).exists():
+            return Path(dst).read_bytes()
+    except Exception:
+        pass
+    finally:
+        Path(src).unlink(missing_ok=True)
+        Path(dst).unlink(missing_ok=True)
+    return mp3
+
+
 def synthesize(text: str, provider: str, voice: str = "", speed: float = 1.0,
-               sentence_mode: bool = True) -> bytes:
+               sentence_mode: bool = True, style: float = 0.35, stability: float = 0.5) -> bytes:
     fn = PROVIDERS.get(provider.lower())
     if not fn:
         raise TtsError(f"अनजान provider: {provider}")
+    if provider.lower() == "elevenlabs":
+        return fn(text, voice, speed, sentence_mode, style, stability)
     return fn(text, voice, speed, sentence_mode)
 
 
 def voices(provider: str) -> list[dict]:
     """Provider की voice list — env override या built-in defaults."""
+    if provider == "elevenlabs":
+        raw = os.getenv("ELEVENLABS_VOICES", "")
+        if raw:
+            return json.loads(raw)
+        return [
+            {"id": "7b9mYhmnp0y2qSH1FnBL", "name": "Bunty - Funny Best Friend"},
+            {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel (English)"},
+            {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella (English)"},
+            {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi (English)"},
+        ]
     if provider == "smallest":
         raw = os.getenv("SMALLEST_VOICES", "")
         if raw:

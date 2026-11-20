@@ -10,12 +10,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.droidcraft.app.jarvis.character.Emotion
+import com.droidcraft.app.jarvis.character.EmotionEngine
+import com.droidcraft.app.jarvis.character.JarvisCharacter
 import com.droidcraft.app.jarvis.memory.MemoryManager
 import com.droidcraft.app.jarvis.live.GeminiLiveClient
 import com.droidcraft.app.jarvis.live.LiveMic
 import com.droidcraft.app.jarvis.live.LiveSpeaker
+import com.droidcraft.app.jarvis.voice.VoiceMode
+import com.droidcraft.app.jarvis.voice.VoiceRouter
+import com.droidcraft.app.jarvis.voice.VoiceSettings
+import com.droidcraft.app.jarvis.voice.VoiceState
 import com.droidcraft.app.jarvis.wake.WakeWordService
 import com.droidcraft.app.data.local.MemoryEntity
+import com.droidcraft.app.studio.tts.TtsClient
+import com.droidcraft.app.studio.tts.Mp3Player
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
@@ -63,6 +72,13 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _memories = MutableStateFlow<List<MemoryEntity>>(emptyList())
     val memories: StateFlow<List<MemoryEntity>> = _memories.asStateFlow()
+
+    // ---------------- character / emotion / voice ----------------
+    private val _emotion = MutableStateFlow(Emotion.NEUTRAL)
+    val emotion: StateFlow<Emotion> = _emotion.asStateFlow()
+    private val _voiceLabel = MutableStateFlow("")
+    val voiceLabel: StateFlow<String> = _voiceLabel.asStateFlow()
+    private var voicePlayer: Mp3Player? = null
 
     // ---------------- Gemini Live (realtime voice) ----------------
     private val _liveOn = MutableStateFlow(false)
@@ -139,6 +155,18 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Character + memory से जुड़ा user context — Gemini को हर बार ताज़ा। */
+    private fun characterContext(): JarvisCharacter.UserContext {
+        val app = getApplication<Application>()
+        return JarvisCharacter.UserContext(
+            userName = _userName.value.ifBlank { "sahab" },
+            facts = _memories.value.map { it.value },
+            channels = listOf("GT Marwadi Vlogs", "GT Tech Gyaan", "GT6 Ki Duniya Hindi",
+                "Mind Facts Hindi", "Kids Videos Hindi Story", "Lumo Tales", "Khanak Drops"),
+            work = "6+ YouTube channels, clipping business, Hindi dubbing, product reels"
+        )
+    }
+
     private fun askBrain() {
         val key = _apiKey.value
         if (key.isBlank()) {
@@ -152,7 +180,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _isThinking.value = true
             try {
-                val brain = JarvisBrain(key)
+                val brain = JarvisBrain(key, characterContext())
                 val reply = brain.reply(_messages.value)
                 if (reply.action != null) {
                     val outcome = device.execute(reply.action)
@@ -176,7 +204,10 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun appendBot(text: String) {
         _messages.value = _messages.value + JarvisMessage(nextId(), text, isUser = false)
-        speak(text)
+        // भावना: user की आखिरी बात + Jarvis का जवाब — दोनों से
+        val lastUser = _messages.value.lastOrNull { it.isUser }?.text.orEmpty()
+        val emotion = EmotionEngine.detect(lastUser, text)
+        speak(text, emotion)
     }
 
     fun startLive() {
@@ -303,17 +334,90 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun speak(text: String) {
+    /**
+     * बोलो — emotion के अनुसार voice, फिर fallback के साथ।
+     * Smart mode: मज़बूत भावना → ElevenLabs; नहीं तो free phone voice।
+     */
+    fun speak(text: String, emotion: Emotion = _emotion.value) {
+        _emotion.value = emotion
         if (!_autoSpeak.value) return
         if (_liveOn.value) return // Live mode mein audio WebSocket se aata hai
+
+        val app = getApplication<Application>()
+        val mode = VoiceSettings.mode(app)
+        val decision = VoiceRouter.decide(app, mode, emotion)
+
+        _voiceLabel.value = when (decision.provider) {
+            VoiceRouter.Provider.PHONE -> "फ़ोन की आवाज़"
+            VoiceRouter.Provider.GEMINI -> "Gemini ${VoiceSettings.geminiVoice(app)}"
+            VoiceRouter.Provider.ELEVENLABS -> "Bunty (ElevenLabs)"
+            VoiceRouter.Provider.SMALLEST -> "Smallest ${decision.voiceId.ifBlank { "clone" }}"
+            VoiceRouter.Provider.HEYGEN -> "HeyGen"
+        }
+
+        when (decision.provider) {
+            VoiceRouter.Provider.PHONE -> speakPhone(text, decision.speed)
+            VoiceRouter.Provider.GEMINI -> speakPhone(text, decision.speed) // Live preset phone fallback
+            else -> speakServer(text, decision, emotion, mode)
+        }
+    }
+
+    private fun speakPhone(text: String, speed: Float) {
         val engine = tts ?: return
         if (!_ttsReady.value) return
+        engine.setSpeechRate(speed.coerceIn(0.5f, 2.0f))
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_${System.currentTimeMillis()}")
+    }
+
+    /** Server TTS (ElevenLabs / Smallest / HeyGen) — fail हो तो phone fallback। */
+    private fun speakServer(text: String, decision: VoiceRouter.Decision, emotion: Emotion, mode: VoiceMode) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val provider = when (decision.provider) {
+                VoiceRouter.Provider.ELEVENLABS -> "elevenlabs"
+                VoiceRouter.Provider.SMALLEST -> "smallest"
+                VoiceRouter.Provider.HEYGEN -> "heygen"
+                else -> return@launch
+            }
+            runCatching {
+                val client = TtsClient(app)
+                val bytes = client.synthesize(
+                    text = text,
+                    provider = provider,
+                    voice = decision.voiceId,
+                    speed = decision.speed,
+                    sentenceMode = true,
+                    style = decision.elevenStyle,
+                    stability = decision.elevenStability
+                )
+                val file = client.saveMp3(bytes, "reply_${System.currentTimeMillis()}.mp3")
+                if (decision.provider == VoiceRouter.Provider.ELEVENLABS) {
+                    VoiceState.elevenBlocked = false // credits वापस आ गए
+                }
+                _isSpeaking.value = true
+                val player = voicePlayer ?: Mp3Player(app).also { voicePlayer = it }
+                player.play(file) { _isSpeaking.value = false }
+            }.onFailure {
+                // credits खत्म / server नहीं — चुप नहीं होंगे
+                if (decision.provider == VoiceRouter.Provider.ELEVENLABS) {
+                    VoiceState.elevenBlocked = true
+                }
+                speakPhone(text, decision.speed)
+            }
+        }
     }
 
     fun stopSpeak() {
         tts?.stop()
+        runCatching { voicePlayer?.stop() }
         _isSpeaking.value = false
+    }
+
+    fun voiceMode(): VoiceMode = VoiceSettings.mode(getApplication())
+
+    fun setVoiceMode(mode: VoiceMode) {
+        VoiceSettings.setMode(getApplication(), mode)
+        appendBot("Voice mode: ${mode.name.lowercase().replace('_', ' ')} — अब Jarvis इसी आवाज़ में बोलेगा।")
     }
 
     fun toggleAutoSpeak() {

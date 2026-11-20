@@ -116,13 +116,16 @@ class TtsRequest(BaseModel):
     voice: str = ""
     speed: float = 1.0
     sentence_mode: bool = True
+    style: float = 0.35
+    stability: float = 0.5
 
 
 @app.post("/api/v1/tts")
 def tts(req: TtsRequest):
-    """Hindi script → MP3 bytes (Smallest AI / HeyGen)."""
+    """Hindi script → MP3 bytes (Smallest AI / HeyGen / ElevenLabs)।"""
     try:
-        data = synthesize(req.text, req.provider, req.voice, req.speed, req.sentence_mode)
+        data = synthesize(req.text, req.provider, req.voice, req.speed, req.sentence_mode,
+                          req.style, req.stability)
         return Response(content=data, media_type="audio/mpeg")
     except TtsError as e:
         raise HTTPException(status_code=400, detail=str(e))

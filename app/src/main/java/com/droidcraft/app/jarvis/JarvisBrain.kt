@@ -6,9 +6,16 @@ import com.droidcraft.app.ai.GeminiClient
  * Jarvis ka dimag — Gemini 2.5 Flash.
  * Baat-cheet plain text mein; jab device action chahiye to JSON mein.
  */
-class JarvisBrain(apiKey: String) {
+class JarvisBrain(
+    apiKey: String,
+    userContext: com.droidcraft.app.jarvis.character.JarvisCharacter.UserContext? = null
+) {
 
-    private val client = GeminiClient(apiKey, JARVIS_PROMPT)
+    private val client = GeminiClient(
+        apiKey,
+        userContext?.let { com.droidcraft.app.jarvis.character.JarvisCharacter.systemPrompt(it) }
+            ?: JARVIS_PROMPT
+    )
 
     suspend fun reply(history: List<JarvisMessage>): BrainReply {
         val raw = client.reply(history.map { it.isUser to it.text })

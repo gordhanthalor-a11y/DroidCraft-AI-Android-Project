@@ -55,7 +55,9 @@ class TtsClient(private val context: Context) {
         provider: String,
         voice: String,
         speed: Float,
-        sentenceMode: Boolean
+        sentenceMode: Boolean,
+        style: Float = 0.35f,
+        stability: Float = 0.5f
     ): ByteArray = withContext(Dispatchers.IO) {
         val url = "${StudioSettings.serverUrl(context)}/api/v1/tts"
         val body = JSONObject().apply {
@@ -64,6 +66,8 @@ class TtsClient(private val context: Context) {
             put("voice", voice)
             put("speed", speed.toDouble())
             put("sentence_mode", sentenceMode)
+            put("style", style.toDouble())
+            put("stability", stability.toDouble())
         }.toString().toRequestBody("application/json".toMediaType())
 
         val builder = Request.Builder().url(url).post(body)

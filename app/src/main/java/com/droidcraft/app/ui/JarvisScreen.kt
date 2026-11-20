@@ -43,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notes
@@ -90,6 +91,11 @@ import com.droidcraft.app.jarvis.JarvisMessage
 import com.droidcraft.app.jarvis.JarvisMessageKind
 import com.droidcraft.app.jarvis.JarvisNote
 import com.droidcraft.app.jarvis.JarvisViewModel
+import com.droidcraft.app.jarvis.character.Emotion
+import com.droidcraft.app.jarvis.character.EmotionEngine
+import com.droidcraft.app.jarvis.character.EmotionStyle
+import com.droidcraft.app.jarvis.voice.VoiceMode
+import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
 import com.droidcraft.app.jarvis.wake.WakeWordService
 import java.text.SimpleDateFormat
@@ -119,6 +125,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
     val messages by viewModel.messages.collectAsState()
     val isThinking by viewModel.isThinking.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
+    val emotion by viewModel.emotion.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val notes by viewModel.notes.collectAsState()
     val autoSpeak by viewModel.autoSpeak.collectAsState()
@@ -136,6 +143,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
     var keyInput by remember { mutableStateOf("") }
     var pendingFlashlight by remember { mutableStateOf<String?>(null) }
     var pendingContact by remember { mutableStateOf<String?>(null) }
+    var showVoice by remember { mutableStateOf(false) }
     var a11yOn by remember { mutableStateOf(JarvisAccessibilityService.isEnabled(context)) }
 
     val listState = rememberLazyListState()
@@ -147,6 +155,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
         isSpeaking -> ReactorState.SPEAKING
         else -> ReactorState.IDLE
     }
+    val mood = EmotionEngine.style(if (isThinking) Emotion.THINKING else if (isSpeaking) Emotion.SPEAKING else emotion)
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         viewModel.setListening(false)
@@ -283,7 +292,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                         letterSpacing = 3.sp
                     )
                     Text(
-                        if (liveOn) "LIVE • $liveStatus • $now" else "${statusText(reactorState)} • $now • ${userName.ifBlank { "sahab" }}",
+                        if (liveOn) "LIVE • $liveStatus • $now" else "${mood.statusLabel} • ${statusText(reactorState)} • $now • ${userName.ifBlank { "sahab" }}",
                         color = if (liveOn) JarvisColors.green else JarvisColors.slate,
                         fontSize = 12.sp
                     )
@@ -308,6 +317,13 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                         Icons.Default.Accessibility,
                         contentDescription = "Accessibility",
                         tint = if (a11yOn) JarvisColors.cyan else JarvisColors.slate
+                    )
+                }
+                IconButton(onClick = { showVoice = true }) {
+                    Icon(
+                        Icons.Default.RecordVoiceOver,
+                        contentDescription = "Voice settings",
+                        tint = JarvisColors.slate
                     )
                 }
                 IconButton(onClick = { if (liveOn) viewModel.stopLive() else viewModel.startLive() }) {
@@ -344,6 +360,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
             // ---------------- arc reactor ----------------
             ArcReactor(
                 state = reactorState,
+                mood = mood,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(210.dp)
@@ -445,6 +462,11 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    // ---------------- voice settings dialog ----------------
+    if (showVoice) {
+        VoiceSettingsDialog(onDismiss = { showVoice = false })
     }
 
     // ---------------- API key dialog ----------------
@@ -594,13 +616,15 @@ private fun statusText(state: ReactorState): String = when (state) {
 // ---------------------------------------------------------------- reactor
 
 @Composable
-private fun ArcReactor(state: ReactorState, modifier: Modifier = Modifier) {
+private fun ArcReactor(state: ReactorState, mood: EmotionStyle, modifier: Modifier = Modifier) {
     val coreColor = when (state) {
         ReactorState.IDLE -> JarvisColors.blue
         ReactorState.LISTENING -> JarvisColors.cyan
         ReactorState.THINKING -> JarvisColors.violet
         ReactorState.SPEAKING -> JarvisColors.green
     }
+    // mood के साथ रंग बदले (happy/sad/angry...) — state से override
+    val moodColor = Color(mood.avatarColor)
 
     val transition = rememberInfiniteTransition(label = "jarvis")
     val rotation by transition.animateFloat(
@@ -629,7 +653,7 @@ private fun ArcReactor(state: ReactorState, modifier: Modifier = Modifier) {
 
             // bahar ki halki roshni
             drawCircle(
-                color = coreColor.copy(alpha = 0.08f + 0.10f * glow),
+                color = moodColor.copy(alpha = 0.08f + 0.10f * glow),
                 radius = radius * 1.2f,
                 center = center
             )
@@ -673,7 +697,7 @@ private fun ArcReactor(state: ReactorState, modifier: Modifier = Modifier) {
             val coreRadius = radius * 0.58f * pulse
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(coreColor, coreColor.copy(alpha = 0f)),
+                    colors = listOf(moodColor, moodColor.copy(alpha = 0f)),
                     center = center,
                     radius = coreRadius
                 ),
@@ -692,6 +716,10 @@ private fun ArcReactor(state: ReactorState, modifier: Modifier = Modifier) {
                 center = center
             )
         }
+        Text(
+            text = mood.avatarExpression,
+            fontSize = 28.sp
+        )
         Text(
             text = when (state) {
                 ReactorState.IDLE -> "ONLINE"
@@ -773,4 +801,124 @@ private fun NoteRow(note: JarvisNote, onDelete: () -> Unit) {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------- voice settings
+
+@Composable
+private fun VoiceSettingsDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var mode by remember { mutableStateOf(VoiceSettings.mode(context)) }
+    var elevenKey by remember { mutableStateOf(VoiceSettings.elevenKey(context)) }
+    var voiceId by remember { mutableStateOf(VoiceSettings.elevenVoiceId(context)) }
+    var cloneId by remember { mutableStateOf(VoiceSettings.cloneVoiceId(context)) }
+    var geminiVoice by remember { mutableStateOf(VoiceSettings.geminiVoice(context)) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Jarvis Voice Settings", color = Color.White) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Voice Mode", color = JarvisColors.slateLight, fontSize = 12.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        VoiceMode.PHONE_FREE to "Free – फ़ोन की आवाज़ (offline)",
+                        VoiceMode.GEMINI_FREE to "Free – Gemini Voices",
+                        VoiceMode.ELEVENLABS to "ElevenLabs (भावना के साथ)",
+                        VoiceMode.SMALLEST to "Smallest AI",
+                        VoiceMode.HEYGEN to "HeyGen",
+                        VoiceMode.SMART to "Smart (भावना = ElevenLabs, बाकी free)"
+                    ).forEach { (m, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            RadioButton(
+                                selected = mode == m,
+                                onClick = {
+                                    mode = m
+                                    VoiceSettings.setMode(context, m)
+                                }
+                            )
+                            Text(label, color = JarvisColors.slateLight, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF334155))
+
+                Text("ElevenLabs API key (encrypted)", color = JarvisColors.slateLight, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = elevenKey, onValueChange = { elevenKey = it },
+                    singleLine = true, placeholder = { Text("ElevenLabs key...") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = JarvisColors.slateLight,
+                        focusedBorderColor = JarvisColors.cyan,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        cursorColor = JarvisColors.cyan
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Voice ID (default: Bunty - Funny Best Friend)", color = JarvisColors.slateLight, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = voiceId, onValueChange = {
+                        voiceId = it
+                        VoiceSettings.setElevenVoiceId(context, it)
+                    },
+                    singleLine = true, placeholder = { Text("7b9mYhmnp0y2qSH1FnBL") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = JarvisColors.slateLight,
+                        focusedBorderColor = JarvisColors.cyan,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        cursorColor = JarvisColors.cyan
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("मेरी clone voice ID (Smallest)", color = JarvisColors.slateLight, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = cloneId, onValueChange = {
+                        cloneId = it
+                        VoiceSettings.setCloneVoiceId(context, it)
+                    },
+                    singleLine = true, placeholder = { Text("अपनी cloned voice ID") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = JarvisColors.slateLight,
+                        focusedBorderColor = JarvisColors.cyan,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        cursorColor = JarvisColors.cyan
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Gemini voice (Free – Gemini Voices mode)", color = JarvisColors.slateLight, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    VoiceSettings.GEMINI_VOICES.take(5).forEach { v ->
+                        FilterChip(
+                            selected = geminiVoice == v,
+                            onClick = {
+                                geminiVoice = v
+                                VoiceSettings.setGeminiVoice(context, v)
+                            },
+                            label = { Text(v, fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (elevenKey.isNotBlank()) VoiceSettings.setElevenKey(context, elevenKey)
+                onDismiss()
+            }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        containerColor = JarvisColors.surfaceDeep
+    )
 }
