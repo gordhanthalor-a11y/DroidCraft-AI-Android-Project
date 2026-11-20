@@ -25,13 +25,13 @@ class Mp3Player(private val context: Context) {
             player = MediaPlayer().apply {
                 setDataSource(file.absolutePath)
                 setOnCompletionListener {
-                    isPlaying = false
+                    this@Mp3Player.isPlaying = false
                     onDone()
                 }
                 prepare()
                 start()
             }
-            isPlaying = true
+            this.isPlaying = true
         }.onFailure {
             Log.e(TAG, "play fail", it)
             isPlaying = false
