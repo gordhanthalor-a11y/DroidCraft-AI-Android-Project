@@ -1,820 +1,242 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="hi">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>J.A.R.V.I.S. — Personal Assistant</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis — Character Demo</title>
 <style>
-  :root {
-    --bg: #020617; --bg2: #070d1c; --cyan: #22d3ee; --blue: #38bdf8;
-    --violet: #a78bfa; --green: #34d399; --slate: #94a3b8; --slate2: #cbd5e1;
-    --surface: #1e293b; --surface2: #0f172a; --line: #334155;
-  }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    background: radial-gradient(1200px 800px at 50% -10%, #0b1730 0%, var(--bg2) 45%, var(--bg) 100%);
-    color: var(--slate2);
-    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-    overflow: hidden;
-  }
-  #app { display: flex; flex-direction: column; height: 100%; max-width: 720px; margin: 0 auto; padding: 12px 14px; }
-  header { display: flex; align-items: center; gap: 10px; }
-  .title { flex: 1; }
-  .title h1 { margin: 0; font-size: 22px; letter-spacing: 4px; color: var(--cyan); font-weight: 700; }
-  .title .status { font-size: 12px; color: var(--slate); letter-spacing: 1px; }
-  .icon-btn {
-    width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line);
-    background: var(--surface); color: var(--slate); font-size: 16px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .icon-btn:hover { border-color: var(--cyan); color: var(--cyan); }
-  #reactor-wrap { position: relative; height: 210px; margin-top: 2px; }
-  #reactor { position: absolute; inset: 0; width: 100%; height: 100%; }
-  #reactor-label {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    font-size: 14px; letter-spacing: 3px; font-weight: 700; color: var(--blue); pointer-events: none;
-  }
-  #wave { height: 34px; margin-top: -8px; }
-  #chat { flex: 1; overflow-y: auto; padding: 6px 2px; display: flex; flex-direction: column; gap: 8px; }
-  #chat::-webkit-scrollbar { width: 6px; }
-  #chat::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
-  .row { display: flex; }
-  .row.user { justify-content: flex-end; }
-  .bubble {
-    max-width: 82%; padding: 9px 12px; border-radius: 14px; font-size: 14px; line-height: 1.45;
-    white-space: pre-wrap; word-break: break-word; animation: pop .18s ease-out;
-  }
-  @keyframes pop { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .row.jarvis .bubble { background: var(--surface); border-bottom-left-radius: 4px; }
-  .row.user .bubble { background: rgba(34,211,238,.16); border-bottom-right-radius: 4px; color: #fff; }
-  .row.system .bubble { background: rgba(56,189,248,.12); color: var(--slate2); }
-  .avatar {
-    width: 28px; height: 28px; border-radius: 50%; background: rgba(34,211,238,.18); color: var(--cyan);
-    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin-right: 8px;
-  }
-  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px; scrollbar-width: none; }
-  .chips::-webkit-scrollbar { display: none; }
-  .chip {
-    flex: 0 0 auto; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);
-    background: var(--surface); color: var(--slate2); font-size: 12px; cursor: pointer;
-  }
-  .chip:hover { border-color: var(--cyan); color: var(--cyan); }
-  .input-row { display: flex; align-items: center; gap: 8px; padding-top: 6px; }
-  #input {
-    flex: 1; background: var(--surface2); border: 1px solid var(--line); border-radius: 14px;
-    color: #fff; padding: 13px 14px; font-size: 14px; outline: none;
-  }
-  #input:focus { border-color: var(--cyan); }
-  #mic {
-    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
-    background: var(--surface); color: var(--cyan); font-size: 20px; flex: 0 0 auto;
-    box-shadow: 0 0 0 0 rgba(34,211,238,.5); transition: box-shadow .3s, background .3s;
-  }
-  #mic.listening { background: var(--cyan); color: var(--bg); animation: pulse 1.4s infinite; }
-  @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(34,211,238,.55); }
-    70% { box-shadow: 0 0 0 18px rgba(34,211,238,0); }
-    100% { box-shadow: 0 0 0 0 rgba(34,211,238,0); }
-  }
-  #send { width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--surface); color: var(--cyan); font-size: 16px; cursor: pointer; flex: 0 0 auto; }
-  #send:disabled { opacity: .4; cursor: default; }
-  dialog {
-    background: var(--surface2); color: var(--slate2); border: 1px solid var(--line); border-radius: 14px;
-    width: min(420px, 92vw); padding: 18px;
-  }
-  dialog::backdrop { background: rgba(2,6,23,.7); }
-  dialog h2 { margin: 0 0 10px; color: #fff; font-size: 17px; }
-  dialog input { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; color: #fff; padding: 10px; outline: none; }
-  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-  dialog button { background: var(--surface); color: var(--slate2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
-  dialog button.primary { background: var(--cyan); color: var(--bg); border-color: var(--cyan); font-weight: 600; }
-  .note { padding: 8px 10px; border-radius: 8px; background: rgba(30,41,59,.7); margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
-  .note div { flex: 1; }
-  .note small { color: var(--slate); display: block; }
-  .note button { background: none; border: none; color: var(--slate); cursor: pointer; font-size: 14px; }
-  .hint { font-size: 12px; color: var(--slate); margin-top: 4px; line-height: 1.5; }
+  :root { --bg:#05070f; --panel:#0d1220; --line:#1e293b; --cyan:#22d3ee; --green:#4ade80;
+          --violet:#a78bfa; --blue:#60a5fa; --text:#e2e8f0; --dim:#94a3b8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:22px; }
+  h1 { font-size:20px; letter-spacing:1px; color:var(--cyan); margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns: 320px 1fr; gap:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; }
+  .reactor { width:240px; height:240px; margin:10px auto; }
+  .mood { text-align:center; font-size:18px; font-weight:600; margin-top:6px; }
+  .status { text-align:center; color:var(--dim); font-size:12px; margin-top:4px; letter-spacing:.5px; }
+  .row { margin:12px 0; }
+  label { display:block; font-size:12px; color:var(--dim); margin-bottom:6px; }
+  textarea { width:100%; min-height:90px; background:#0a0f1c; color:var(--text); border:1px solid var(--line);
+             border-radius:10px; padding:10px; font-size:14px; resize:vertical; }
+  button { background:var(--cyan); color:#04121a; border:0; border-radius:10px; padding:10px 14px;
+           font-weight:600; cursor:pointer; font-size:14px; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { background:#0a0f1c; border:1px solid var(--line); color:var(--dim); border-radius:999px;
+          padding:6px 10px; font-size:12px; cursor:pointer; }
+  .chip.on { border-color:var(--cyan); color:var(--cyan); }
+  .chat { display:flex; flex-direction:column; gap:10px; min-height:280px; max-height:420px; overflow:auto; }
+  .msg { background:#0a0f1c; border:1px solid var(--line); border-radius:12px; padding:10px 12px;
+         font-size:14px; line-height:1.5; white-space:pre-wrap; }
+  .msg.me { border-color:#1e3a8a; }
+  .msg .tag { display:block; font-size:10px; color:var(--dim); margin-bottom:4px; letter-spacing:.5px; }
+  .emotions { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; margin-top:14px; }
+  .em { background:#0a0f1c; border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-size:12px; cursor:pointer; }
+  .em:hover { border-color:var(--cyan); }
+  .em b { display:block; font-size:16px; margin-bottom:2px; }
+  .note { color:var(--dim); font-size:12px; margin-top:14px; line-height:1.6; }
+  @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
-<div id="app">
-  <header>
-    <div class="title">
-      <h1>J.A.R.V.I.S.</h1>
-      <div class="status" id="status">ONLINE</div>
+<div class="wrap">
+  <h1>J.A.R.V.I.S. — लाइविंग दोस्त (Character Demo)</h1>
+  <div class="sub">वही logic जो APK में चलता है: character sheet + memory + emotion engine + voice mode router</div>
+  <div class="grid">
+    <div class="card">
+      <canvas class="reactor" id="cv" width="240" height="240"></canvas>
+      <div class="mood" id="mood">शांत</div>
+      <div class="status" id="status">ONLINE • NEUTRAL</div>
+      <div class="row">
+        <label>आप कौन हैं? (memory)</label>
+        <input id="who" placeholder="नाम / काम / चैनल" style="width:100%;background:#0a0f1c;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px;font-size:13px">
+      </div>
+      <div class="row">
+        <label>Voice Mode</label>
+        <div class="chips" id="modes"></div>
+      </div>
+      <div class="row">
+        <label>Emotion का असर (इससे बात कहो)</label>
+        <div class="emotions" id="emotions"></div>
+      </div>
     </div>
-    <button class="icon-btn" id="wake-btn" title="Hey Jarvis (background sunai)">🎧</button>
-    <button class="icon-btn" id="tts-btn" title="Awaaz on/off">🔊</button>
-    <button class="icon-btn" id="notes-btn" title="Notes">📝</button>
-    <button class="icon-btn" id="key-btn" title="Gemini API key">⚙️</button>
-  </header>
-
-  <div id="reactor-wrap">
-    <canvas id="reactor"></canvas>
-    <div id="reactor-label">ONLINE</div>
+    <div class="card">
+      <div class="chat" id="chat"></div>
+      <div class="row">
+        <textarea id="inp" placeholder="Jarvis से बात करो... जैसे: आज मेरा वीडियो viral हो गया! / मुझे बहुत दुख हो रहा है / Jarvis तुम कौन हो?"></textarea>
+      </div>
+      <div class="row" style="display:flex;gap:8px">
+        <button id="send">भेजो</button>
+        <button class="ghost" id="speak">🔊 बोलो</button>
+        <button class="ghost" id="reset">रीसेट</button>
+      </div>
+      <div class="note" id="route">Voice router: —</div>
+    </div>
   </div>
-  <canvas id="wave"></canvas>
-
-  <div id="chat"></div>
-
-  <div class="chips" id="chips"></div>
-
-  <div class="input-row">
-    <input id="input" placeholder="Hindi ya English mein likhiye..." autocomplete="off" />
-    <button id="mic" title="Bolo">🎙️</button>
-    <button id="send" title="Bhejo" disabled>➤</button>
+  <div class="note">
+    <b style="color:var(--cyan)">असली बात:</b> यह demo character/emotion logic दिखाता है। असली आवाज़ (phone TTS / Gemini / ElevenLabs Bunty) Android app में चलती है — ElevenLabs key Settings → Voice Settings में डालो।
   </div>
 </div>
 
-<dialog id="key-dialog">
-  <h2>Gemini API key</h2>
-  <div class="hint">Baat-cheet aur creator tasks ke liye API key daaliye (aistudio.google.com/apikey se free). Device ke kaam (weather, notes, time) bina key ke bhi chalte hain.</div>
-  <p><input id="key-input" placeholder="AIza..." /></p>
-  <div class="actions">
-    <button id="key-close">Close</button>
-    <button class="primary" id="key-save">Save</button>
-  </div>
-</dialog>
-
-<dialog id="notes-dialog">
-  <h2>Jarvis Notes</h2>
-  <div id="notes-list"></div>
-  <div class="actions"><button class="primary" id="notes-close">Close</button></div>
-</dialog>
-
 <script>
-"use strict";
-
-// ---------------------------------------------------------------- state
-const state = { mode: "idle", tts: true, listening: false };
-const chat = document.getElementById("chat");
-const input = document.getElementById("input");
-const sendBtn = document.getElementById("send");
-const micBtn = document.getElementById("mic");
-const statusEl = document.getElementById("status");
-const labelEl = document.getElementById("reactor-label");
-
-const COLORS = { idle: "#38bdf8", listening: "#22d3ee", thinking: "#a78bfa", speaking: "#34d399" };
-const LABEL = { idle: "ONLINE", listening: "SUN RAHA HAI", thinking: "SOCH RAHA HAI", speaking: "BOL RAHA HAI" };
-
-const suggestions = ["Mausam kaisa hai?", "Alarm 7 baje", "Timer 5 minute", "Battery kitni hai?",
-  "Note karo: dua hai", "Video ideas", "Joke sunao", "Time kya hai?"];
-
-const chipsEl = document.getElementById("chips");
-suggestions.forEach(s => {
-  const c = document.createElement("button");
-  c.className = "chip"; c.textContent = s;
-  c.onclick = () => handleUserText(s);
-  chipsEl.appendChild(c);
-});
-
-// ---------------------------------------------------------------- ui helpers
-function setStatus(mode) {
-  state.mode = mode;
-  const color = COLORS[mode];
-  statusEl.textContent = LABEL[mode] + " • " + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  labelEl.textContent = LABEL[mode];
-  labelEl.style.color = color;
-  micBtn.classList.toggle("listening", mode === "listening");
-}
-
-function addMessage(text, who) {
-  const row = document.createElement("div");
-  row.className = "row " + who;
-  if (who === "jarvis") {
-    const av = document.createElement("div");
-    av.className = "avatar"; av.textContent = "J";
-    row.appendChild(av);
-  }
-  const b = document.createElement("div");
-  b.className = "bubble"; b.textContent = text;
-  row.appendChild(b);
-  chat.appendChild(row);
-  chat.scrollTop = chat.scrollHeight;
-}
-
-function addBot(text, speakIt = true) {
-  addMessage(text, "jarvis");
-  if (speakIt) speak(text);
-}
-
-// ---------------------------------------------------------------- tts
-const synth = window.speechSynthesis;
-function speak(text) {
-  if (!state.tts || !synth) return;
-  synth.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "hi-IN";
-  u.rate = 1.0;
-  u.onstart = () => setStatus("speaking");
-  u.onend = () => setStatus("idle");
-  u.onerror = () => setStatus("idle");
-  synth.speak(u);
-}
-function stopSpeak() { if (synth) synth.cancel(); }
-
-// "Hey Jarvis" background wake-word (browser version)
-let wakeActive = false;
-let wakeRec = null;
-const wakeBtn = document.getElementById("wake-btn");
-
-function startWake() {
-  if (!SR) { addBot("Is browser mein continuous voice support nahi hai. Chrome try kariye."); return; }
-  wakeActive = true;
-  wakeBtn.textContent = "🌙";
-  wakeBtn.style.borderColor = "var(--cyan)";
-  wakeRec = new SR();
-  wakeRec.lang = "hi-IN";
-  wakeRec.continuous = true;
-  wakeRec.interimResults = true;
-  wakeRec.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript.toLowerCase();
-      if (/\b(hey\s+|hello\s+|arree\s+)?jarvis\b/.test(t)) {
-        wakeActive = false;
-        wakeBtn.textContent = "🎧";
-        wakeBtn.style.borderColor = "";
-        try { wakeRec.stop(); } catch {}
-        startListening();
-        break;
-      }
-    }
-  };
-  wakeRec.onend = () => { if (wakeActive) { try { wakeRec.start(); } catch {} } };
-  wakeRec.onerror = () => {
-    wakeActive = false;
-    wakeBtn.textContent = "🎧";
-    wakeBtn.style.borderColor = "";
-  };
-  try { wakeRec.start(); } catch (e) { addBot("Wake-word shuru nahi hua: " + e.message); }
-}
-
-wakeBtn.onclick = () => {
-  if (wakeActive) {
-    wakeActive = false;
-    if (wakeRec) try { wakeRec.stop(); } catch {}
-    wakeBtn.textContent = "🎧";
-    wakeBtn.style.borderColor = "";
-  } else {
-    startWake();
-  }
-};
-
-document.getElementById("tts-btn").onclick = () => {
-  state.tts = !state.tts;
-  document.getElementById("tts-btn").textContent = state.tts ? "🔊" : "🔇";
-  if (!state.tts) stopSpeak();
-};
-
-// ---------------------------------------------------------------- speech recognition
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recog = null;
-
-function startListening() {
-  if (!SR) { addBot("Is browser mein voice recognition nahi hai. Chrome ya Edge use kariye."); return; }
-  if (state.listening) { recog && recog.stop(); return; }
-  try {
-    recog = new SR();
-    recog.lang = "hi-IN";
-    recog.interimResults = false;
-    recog.maxAlternatives = 1;
-    recog.onstart = () => { state.listening = true; setStatus("listening"); };
-    recog.onend = () => { state.listening = false; setStatus("idle"); };
-    recog.onerror = (e) => {
-      state.listening = false; setStatus("idle");
-      if (e.error === "not-allowed") addBot("Microphone permission zaroori hai — browser ke address bar se allow kariye.");
-    };
-    recog.onresult = (e) => {
-      const text = e.results[0][0].transcript;
-      if (text) handleUserText(text);
-    };
-    recog.start();
-  } catch (err) {
-    addBot("Voice shuru nahi ho payi: " + err.message);
-  }
-}
-micBtn.onclick = startListening;
-
-// ---------------------------------------------------------------- command parser (JS port)
-const HINDI = "\\u0900-\\u097F";
-const normalize = (s) => s.trim().toLowerCase().replace(/[?!,;"']+/g, "").replace(/\s+/g, " ");
-const escapeReg = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const hasWord = (t, words) => words.some(w => new RegExp(`\\b${escapeReg(w)}\\b`).test(t));
-
-function parseCommand(raw) {
-  const text = normalize(raw);
-  if (!text) return null;
-
-  if (hasWord(text, ["who are you","kaun ho","tum kaun","tera naam","your name","tumhara naam","aap kaun"]))
-    return { type: "IDENTITY" };
-  if (["hello","hi","hey","namaste","namaskar","salaam","salam","ram ram","radhe radhe","good morning","good afternoon","good evening","good night","pranam","aadab","hii","helo"]
-      .some(w => new RegExp(`^${escapeReg(w)}\\b`).test(text)))
-    return { type: "GREETING" };
-
-  const nameMatch = text.match(new RegExp(`\\b(?:mera naam|my name is)\\s+([${HINDI} A-Za-z]{2,24})`));
-  if (nameMatch) {
-    const name = nameMatch[1].replace(/\s+(hai|hain|he|h)\b/, "").trim();
-    if (name) return { type: "MEMORY", name };
-  }
-
-  if (hasWord(text, ["timer","countdown","taimer"])) {
-    let sec = null;
-    const m = text.match(/(\d{1,4})\s*(?:minute|min|minutes|minaat)/);
-    if (m) sec = parseInt(m[1], 10) * 60;
-    else { const s = text.match(/(\d{1,4})\s*(?:second|sec|seconds)/); if (s) sec = parseInt(s[1], 10); }
-    return { type: "TIMER", seconds: sec || 60 };
-  }
-
-  if (hasWord(text, ["what do you remember","yaad kya hai","meri memory","memory dikhao","kya yaad hai","memory batao"])) {
-    return { type: "MEMORY_LIST", query: (text.match(/\b(?:about|baare\s+mein)\s+(.+)$/) || [])[1] || "" };
-  }
-  const memMatch = text.match(/\b(?:remember(?:\s+that)?|yaad\s+(?:rakho|rakh|dharak|dharo))\s*:?\s*(.+)$/);
-  if (memMatch) {
-    const fact = memMatch[1].trim().replace(/[.?!,]+$/, "");
-    if (fact) return { type: "MEMORY_ADD", text: fact };
-  }
-
-  if (hasWord(text, ["note","notes"])) {
-    if (["dikha","dikhao","list","kaunsi","sab","all"].some(w => text.includes(w))) return { type: "NOTE_LIST" };
-    const m = text.match(/\b(?:add\s+note|note\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo))\s*:?\s*(.+)$/);
-    const noteText = m ? m[1].trim().replace(/[.?!,]+$/, "") : "";
-    return noteText ? { type: "NOTE_ADD", text: noteText } : { type: "NOTE_LIST" };
-  }
-
-  if (hasWord(text, ["alarm","alaarm","alarm clock"]) || /\b(?:jaga|jagao|utha|uthao|uthaya|wake\s*me)\b/.test(text)) {
-    const m = text.match(/(\d{1,2})(?:\s*:\s*(\d{2}))?(?:\s+(\d{2}))?\s*(am|pm|baje|baaje|o.?clock)?/);
-    if (m) {
-      let hour = parseInt(m[1], 10);
-      const minute = parseInt(m[2] || m[3] || "0", 10);
-      const marker = m[4] || "";
-      const isPm = marker === "pm" || hasWord(text, ["raat","night","shaam","evening"]);
-      const isAm = marker === "am" || hasWord(text, ["subah","morning"]);
-      if (isPm && hour < 12) hour += 12;
-      if (isAm && hour === 12) hour = 0;
-      if (hour <= 23 && minute <= 59) return { type: "ALARM", hour, minute };
-    }
-  }
-
-  if (hasWord(text, ["flashlight","torch","roshni","light","prakash","jotri"])) {
-    const on = !["off","band","bujh","bujha"].some(w => text.includes(w));
-    return { type: "FLASHLIGHT", on };
-  }
-
-  if (hasWord(text, ["battery","charge","charging","charges"])) return { type: "BATTERY" };
-
-  if ((hasWord(text, ["device","phone","mobile","handset"]) && hasWord(text, ["info","information","details","kya hai","about","spec"]))
-      || ["about phone","device info","phone info","mobile info"].some(w => text.includes(w)))
-    return { type: "DEVICE_INFO" };
-
-  if (hasWord(text, ["screen dikhao","screen dikha","screen batao","screen kya hai","kya dikha raha hai","kya dikh raha hai","kya dikhta hai","what is on the screen","screen par kya hai","screen dump","screen padho"]))
-    return { type: "SCREEN_DUMP", query: (text.match(/\b(?:mein|me|par|about|ke\s+baare\s+mein)\s+(.+)$/) || [])[1] || "" };
-  const tapMatch = text.match(/^(?:tap\s+(?:on\s+)?|click\s+(?:on\s+)?|touch\s+(?:on\s+)?|daba\s*:?\s*|dabao\s+|daba\s+do)\s*(.+)$/);
-  if (tapMatch) {
-    const t = tapMatch[1].trim().replace(/[.?!]+$/, "");
-    if (t) return { type: "TAP", target: t };
-  }
-  const tapHindi = text.match(/^(.+?)\s+par\s+(?:click|tap|dabao|daba)\w*\s*(?:karo|kar|do)?$/);
-  if (tapHindi) {
-    const t = tapHindi[1].trim();
-    if (t) return { type: "TAP", target: t };
-  }
-
-  if (hasWord(text, ["weather","mausam","temperature","garmi","baarish","barish","thand","thanda"]))
-    return { type: "WEATHER", city: extractCity(text) };
-
-  if (hasWord(text, ["sms","message","msg"]) && !hasWord(text, ["open"])) {
-    const n = (text.match(/(\+?\d{10,13})/) || [])[1] || "";
-    let body = (text.split(":")[1] || "").trim() || (text.split("ki")[1] || "").trim();
-    return { type: "SMS", number: n, body };
-  }
-  if (hasWord(text, ["call","dial","phone karo","call karo"]) || (/\bphone\b/.test(text) && hasWord(text, ["karo","kar"]))) {
-    const n = (text.match(/(\+?\d{10,13})/) || [])[1] || "";
-    if (n || hasWord(text, ["call","dial"])) return { type: "CALL", number: n };
-  }
-
-  const urlMatch = text.match(/((?:https?:\/\/)?(?:[\w-]+\.)+(?:com|in|net|org|co|io|app|dev|gov|edu|info|xyz|live|me|tv|cc)(?:\/\S*)?)/);
-  if (urlMatch) return { type: "OPEN_URL", url: urlMatch[1] };
-
-  const openMatch = text.match(/^(?:open|launch|start|kholo|khol|kholu|khulai|khol do|kholi|chalu kar|chala do|chala|karke kholo)\s+(.+)$/);
-  if (openMatch) {
-    const q = openMatch[1].replace(/\b(?:app|application|kholo|khol|karke|kar)\b/g, " ").replace(/\s+/g, " ").trim();
-    if (q) return { type: "OPEN_APP", query: q };
-  }
-
-  const searchMatch = text.match(/^(?:search|google|dhundo|dhoondo|dhoond|dikhao|dikha do)\s+(.+)$/);
-  if (searchMatch) return { type: "WEB_SEARCH", query: searchMatch[1].trim() };
-
-  const siteMatch = text.match(/^(?:youtube|google|bing|duckduckgo)\s+(?:mein|me|par|pe|on)?\s*(.+)$/);
-  if (siteMatch) return { type: "WEB_SEARCH", query: siteMatch[1].trim() };
-
-  if (hasWord(text, ["joke","chutkula","hasa","hasao","comedy","funny","majedaar"])) return { type: "JOKE" };
-
-  if (hasWord(text, ["video idea","ideas","script","vlog","youtube","channel","thumbnail","seo","tags","description","title","content","shorts","idea"]))
-    return { type: "CREATOR_HELP" };
-
-  if (hasWord(text, ["time","waqt","samay","baje","kitne baje"])) return { type: "TIME" };
-  if (hasWord(text, ["date","taarikh","tareekh","aaj ka din","aaj kya din"])) return { type: "DATE" };
-
-  return { type: "UNKNOWN" };
-}
-
-function extractCity(text) {
-  const after = (text.match(/\b(?:weather|mausam|temperature|baarish|barish)\b\s*(.*)$/) || [])[1] || "";
-  const city = after
-    .replace(/^(?:in|mein|me|of|for|ka|ki|ke)(?=\s|$)/, "")
-    .replace(/\b(?:kaisa|kaisi|kya|hai|hain|batao|bata|bataiye|karo|kar|dikhao|dikha|ka|ki|ke|mein|me|in|of|for)\b/g, " ")
-    .replace(/[?.!,]/g, "").replace(/\s+/g, " ").trim().slice(0, 24);
-  return city || "Jaipur";
-}
-
-// ---------------------------------------------------------------- local actions
-const JOKES = [
-  "Programmer ki biwi boli: 'Dukaan se ek doodh ki bottle aur roti laana.' Woh gaya aur do bottle doodh laaya. 'Ek bottle kyun laya?' 'Kyunki doodh ka coupon tha.'",
-  "Teacher: 'Beta, 2 aur 2 kitne hote hain?' 'Mobile ke hisaab se 4, maa ke hisaab se jitne khaye.'",
-  "Boss: 'Tumhare liye ek gift hai — ek cycle!' Employee: 'Par main toh ghar se aata hoon, cycle kahan?' Boss: 'Isi liye.'",
-  "Aurat: 'Suno, tum mujhe kitna pyaar karte ho?' Aadmi: 'Chand tak, aur wapas.'",
-  "Doctor: 'Aapko neend ki dawai lagani hogi, har raat 8 baje.' Mariz: 'Par doctor sahab, main hi 8 baje so jaata hoon!'",
-  "IT support: 'Computer band karke dobara on karo.' Aadmi: 'Woh main karta hoon, par problem yahi hai ki band hi nahi hota!'"
+// ---------- emotion engine (APK के Emotion.kt का port) ----------
+const EMOTIONS = [
+  {k:"HAPPY", hi:"खुश", face:"😄", color:"#4ade80", speed:1.12, style:0.85, stab:0.35, label:"खुश"},
+  {k:"SAD", hi:"दुखी", face:"😔", color:"#60a5fa", speed:0.88, style:0.40, stab:0.60, label:"दुखी"},
+  {k:"ANGRY", hi:"गुस्सा", face:"😠", color:"#f87171", speed:0.95, style:0.75, stab:0.45, label:"गुस्सा"},
+  {k:"CALM", hi:"शांत", face:"😌", color:"#22d3ee", speed:0.95, style:0.35, stab:0.55, label:"शांत"},
+  {k:"ENCOURAGING", hi:"हिम्मत", face:"💪", color:"#a78bfa", speed:1.05, style:0.70, stab:0.40, label:"हिम्मत दे रहा"},
+  {k:"THINKING", hi:"सोच", face:"🤔", color:"#a78bfa", speed:0.98, style:0.30, stab:0.50, label:"सोच रहा"},
+  {k:"SPEAKING", hi:"बोल", face:"🗣️", color:"#4ade80", speed:1.05, style:0.55, stab:0.45, label:"बोल रहा"},
+  {k:"NEUTRAL", hi:"सामान्य", face:"🙂", color:"#60a5fa", speed:1.00, style:0.35, stab:0.50, label:"सामान्य"},
 ];
+const EMO = Object.fromEntries(EMOTIONS.map(e=>[e.k,e]));
 
-function greetingText() {
-  const h = new Date().getHours();
-  const part = h >= 4 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : h >= 17 && h < 22 ? "Good evening" : "Good night";
-  const name = localStorage.getItem("jarvis_user_name") || "";
-  return `${part}${name ? " " + name : ""}! Main J.A.R.V.I.S. hoon. Boliye — mausam, notes, time, alarm, jokes, sab taiyaar hai.`;
+const HAPPY = ["बधाई","शाबाश","वाह","कमाल","मज़ा","अरे वाह","खुश","बहुत बढ़िया","जबरदस्त","आनंद"];
+const SAD = ["दुख","दुखी","माफ़","अरे नहीं","बुरा","रोना","उदास","निराश","दर्द","संतप्त","अकेला","मुसीबत"];
+const ANGRY = ["गुस्सा","चिढ़","फट","बर्बाद","बकवास","अजीब","नाराज़","खराब हो गया","बेकार"];
+const ENCOURAGE = ["मत हार","हिम्मत","तुम कर लोगे","बस और","चलो करते","मेहनत","रास्ता मिल","सब ठीक","तुम्हारे साथ"];
+const THINK = ["क्यों","कैसे","सोच","समझ","क्या","कब","बताओ","explain"];
+
+function detect(user, reply=""){
+  const u = user.toLowerCase();
+  if (THINK.some(w=>u.includes(w))) return "THINKING";
+  if (HAPPY.some(w=>u.includes(w))) return "HAPPY";
+  if (ANGRY.some(w=>u.includes(w))) return "ANGRY";
+  if (SAD.some(w=>u.includes(w))) return "SAD";
+  if (ENCOURAGE.some(w=>u.includes(w))) return "ENCOURAGING";
+  return "NEUTRAL";
+}
+const STRONG = new Set(["HAPPY","SAD","ANGRY","ENCOURAGING"]);
+
+// ---------- voice router (APK के VoiceSettings.kt का port) ----------
+const MODES = [
+  {k:"PHONE_FREE", label:"Free – फ़ोन"},
+  {k:"GEMINI_FREE", label:"Free – Gemini"},
+  {k:"ELEVENLABS", label:"ElevenLabs"},
+  {k:"SMALLEST", label:"Smallest"},
+  {k:"HEYGEN", label:"HeyGen"},
+  {k:"SMART", label:"Smart"},
+];
+let elevenBlocked = false;
+function route(mode, emo){
+  if (elevenBlocked && (mode==="ELEVENLABS"||mode==="SMART"))
+    return {prov:"फ़ोन की आवाज़ (ElevenLabs credits खत्म — auto fallback)", free:true};
+  switch(mode){
+    case "PHONE_FREE": return {prov:"फ़ोन की आवाज़"};
+    case "GEMINI_FREE": return {prov:"Gemini " + "Puck"};
+    case "ELEVENLABS": return {prov:"Bunty (ElevenLabs)"};
+    case "SMALLEST": return {prov:"Smallest"};
+    case "HEYGEN": return {prov:"HeyGen"};
+    case "SMART": return STRONG.has(emo) ? {prov:"Bunty (ElevenLabs)"} : {prov:"फ़ोन की आवाज़"};
+  }
+  return {prov:"फ़ोन की आवाज़"};
 }
 
-function timeText() {
-  const d = new Date();
-  return `Abhi ${d.toLocaleDateString("hi-IN", { day: "numeric", month: "long", year: "numeric" })} hai aur samay ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} hai.`;
-}
-function dateText() {
-  const d = new Date();
-  return `Aaj ${d.toLocaleDateString("hi-IN", { day: "numeric", month: "long", year: "numeric", weekday: "long" })} hai.`;
-}
-function batteryText() {
-  if (navigator.getBattery) {
-    navigator.getBattery().then(b => {
-      addBot(`Battery ${Math.round(b.level * 100)}% hai${b.charging ? " aur charging chal rahi hai." : "."}`);
-    }).catch(() => addBot("Battery info nahi mil payi."));
-    return null;
+// ---------- UI ----------
+const state = { mode:"SMART", emo:"NEUTRAL", user:"sahab", facts:[] };
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let rot = 0;
+function draw(){
+  const e = EMO[state.emo];
+  const W=240, c={x:120,y:120}, r=105;
+  ctx.clearRect(0,0,W,W);
+  ctx.beginPath(); ctx.arc(c.x,c.y,r*1.18,0,7); ctx.fillStyle=e.color+"18"; ctx.fill();
+  ctx.beginPath(); ctx.arc(c.x,c.y,r,0,7); ctx.strokeStyle=e.color+"66"; ctx.lineWidth=2; ctx.stroke();
+  ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(rot); ctx.translate(-c.x,-c.y);
+  for(let i=0;i<3;i++){
+    ctx.beginPath(); ctx.arc(c.x,c.y,r, (i*120)*Math.PI/180, (i*120+90)*Math.PI/180);
+    ctx.strokeStyle=e.color; ctx.lineWidth=6; ctx.lineCap="round"; ctx.stroke();
   }
-  return "Battery info is browser mein uplabdh nahi hai.";
-}
-
-async function weather(city) {
-  try {
-    const q = city || "Jaipur";
-    const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=en&format=json`).then(r => r.json());
-    if (!geo.results || !geo.results.length) return { ok: false, msg: `'${q}' naam ka sheher nahi mila.` };
-    const p = geo.results[0];
-    const f = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`).then(r => r.json());
-    const c = f.current;
-    return { ok: true, msg: `${p.name} (${p.country || ""}): ${weatherHindi(c.weather_code)}. Temperature ${Math.round(c.temperature_2m)}°C, mehsoos ${Math.round(c.apparent_temperature)}°C. Humidity ${Math.round(c.relative_humidity_2m)}%, hawa ${Math.round(c.wind_speed_10m)} km/h.` };
-  } catch (e) {
-    return { ok: false, msg: "Mausam jaan nahi paya: " + (e.message || "internet check kariye") };
-  }
-}
-
-function weatherHindi(code) {
-  if (code === 0) return "saaf aasman";
-  if (code <= 2) return "thodi badli";
-  if (code === 3) return "badli";
-  if (code === 45 || code === 48) return "dhund";
-  if (code >= 51 && code <= 57) return "halki boondabaandi";
-  if (code >= 61 && code <= 67) return "baarish";
-  if (code >= 71 && code <= 77) return "barf";
-  if (code >= 80 && code <= 82) return "baarish ki jhaad";
-  if (code === 85 || code === 86) return "barf ki jhaad";
-  if (code >= 95) return "toofani baarish";
-  return "anjaan";
-}
-
-// notes (localStorage)
-function loadNotes() { try { return JSON.parse(localStorage.getItem("jarvis_notes") || "[]"); } catch { return []; } }
-function saveNotes(n) { localStorage.setItem("jarvis_notes", JSON.stringify(n)); }
-
-function executeLocal(intent) {
-  switch (intent.type) {
-    case "TIME": return timeText();
-    case "DATE": return dateText();
-    case "GREETING": return greetingText();
-    case "IDENTITY": return "Main J.A.R.V.I.S. hoon — Just A Rather Very Intelligent System. Aapka personal assistant.";
-    case "JOKE": return JOKES[Math.floor(Math.random() * JOKES.length)];
-    case "BATTERY": { const b = batteryText(); return b; }
-    case "DEVICE_INFO": return `Browser: ${navigator.userAgent.split(") ")[0]}). Screen ${screen.width}x${screen.height}.`;
-    case "FLASHLIGHT": return "Flashlight phone ke paas hoti hai — Android app mein 'Flashlight on' boliye. Yahan sirf web hai.";
-    case "SCREEN_DUMP": return "Browser mein screen automation nahi hai — yeh Android app ka feature hai. Wahan 'screen dikhao' boliye.";
-    case "TAP": return `Web par '${intent.target}' par click nahi kar sakta — Android app mein 'tap on ${intent.target}' boliye.`;
-    case "ALARM": return `Alarm ${intent.hour}:${String(intent.minute).padStart(2, "0")} — yeh phone app mein set hoga. Web par sirf samaay dikha sakta hoon: ${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.`;
-    case "TIMER": return `${Math.round(intent.seconds / 60) || 1} minute ka timer — phone app mein set kar dijiye.`;
-    case "OPEN_APP": return `'${intent.query}' kholna phone app ka kaam hai. Web par main search dikha sakta hoon.`;
-    case "WEB_SEARCH": window.open("https://www.google.com/search?q=" + encodeURIComponent(intent.query), "_blank"); return "Google khol raha hoon.";
-    case "OPEN_URL": window.open(/^https?:/.test(intent.url) ? intent.url : "https://" + intent.url, "_blank"); return "Link khol raha hoon.";
-    case "CALL": return intent.number ? `Dial pad: ${intent.number} — phone app mein call kar dijiye.` : "Number bataiye.";
-    case "SMS": return intent.number ? `SMS app: ${intent.number} — phone app mein bhej dijiye.` : "Number bataiye.";
-    case "NOTE_ADD": {
-      const notes = loadNotes();
-      notes.unshift({ text: intent.text, time: new Date().toLocaleString("hi-IN") });
-      saveNotes(notes);
-      return `Note kar liya: "${intent.text}"`;
-    }
-    case "NOTE_LIST": {
-      const notes = loadNotes();
-      if (!notes.length) return "Abhi koi note nahi hai. 'Note karo: ...' likhiye.";
-      return "Aapki notes:\n" + notes.slice(0, 8).map(n => `• ${n.text} (${n.time})`).join("\n");
-    }
-    case "MEMORY_ADD": {
-      const all = JSON.parse(localStorage.getItem("jarvis_memory") || "[]");
-      all.unshift(intent.text);
-      localStorage.setItem("jarvis_memory", JSON.stringify(all.slice(0, 200)));
-      return `Yaad rakh liya: "${intent.text}"`;
-    }
-    case "MEMORY_LIST": {
-      const all = JSON.parse(localStorage.getItem("jarvis_memory") || "[]");
-      const q = (intent.query || "").toLowerCase();
-      const facts = q ? all.filter(f => f.toLowerCase().includes(q)) : all;
-      if (!facts.length) return "Abhi kuch yaad nahi hai. 'Remember that ...' likhiye.";
-      return "Mujhe yaad hai:\n" + facts.slice(0, 8).map(f => `• ${f}`).join("\n");
-    }
-    default: return null;
-  }
-}
-
-// ---------------------------------------------------------------- gemini brain
-const JARVIS_PROMPT = `Tum J.A.R.V.I.S. ho (Just A Rather Very Intelligent System) — ek personal AI assistant jo Hindi, Hinglish aur English mein baat karta hai. Tum ek YouTube creator "GT Marwadi Vlogs" (farming/agriculture niche) ke saath kaam karte ho.
-
-Niyam:
-1. Jawab hamesha user ki bhasha mein do — Hindi/Hinglish mein Hinglish, English mein English. Chhota aur seedha (2-4 line).
-2. Device action ki zaroorat ho to SIRF JSON output karo (markdown nahi): {"reply": "chhota jawab", "action": "OPEN_APP", "params": {"query": "whatsapp"}}
-3. Action names: TIME, DATE, WEATHER, OPEN_APP, WEB_SEARCH, OPEN_URL, CALL, SMS, ALARM, TIMER, NOTE_ADD, NOTE_LIST, FLASHLIGHT, BATTERY, DEVICE_INFO, JOKE, GREETING, IDENTITY, CREATOR_HELP.
-4. Params: WEATHER {"city":"Jaipur"}, ALARM {"hour":7,"minute":0}, TIMER {"seconds":300}, CALL {"number":"9876543210"}, SMS {"number":"9876543210","body":"namaste"}, NOTE_ADD {"text":"..."}, OPEN_APP {"query":"youtube"}, WEB_SEARCH {"query":"..."}.
-5. Normal baat-cheet, video ideas, scripts, titles, SEO ke liye plain text likho.
-6. Kabhi bhi apni asli AI prakriti reveal mat karo; tum hamesha J.A.R.V.I.S. hi rahoge.`;
-
-async function brainReply(history) {
-  const key = localStorage.getItem("gemini_key") || "";
-  if (!key) {
-    return { text: "Main device ke kaam (weather, notes, time, jokes) bina key ke bhi kar sakta hoon. Baat-cheet aur creator tasks ke liye ⚙️ se Gemini API key daaliye (aistudio.google.com/apikey se free).", action: null };
-  }
-  const contents = history.slice(-20).map(m => ({ role: m.isUser ? "user" : "model", parts: [{ text: m.text }] }));
-  const body = {
-    system_instruction: { parts: [{ text: JARVIS_PROMPT }] },
-    contents
-  };
-  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) throw new Error("Gemini HTTP " + res.status);
-  const data = await res.json();
-  const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "";
-  return parseBrain(raw);
-}
-
-function parseBrain(raw) {
-  let s = raw.trim();
-  if (!s.startsWith("{")) return { text: s, action: null };
-  s = s.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
-  const start = s.indexOf("{"), end = s.lastIndexOf("}");
-  if (start < 0 || end <= start) return { text: raw.trim(), action: null };
-  try {
-    const j = JSON.parse(s.slice(start, end + 1));
-    let action = null;
-    if (j.action) {
-      const params = j.params || {};
-      const map = {
-        TIME: {}, DATE: {}, GREETING: {}, IDENTITY: {}, JOKE: {}, BATTERY: {}, DEVICE_INFO: {}, FLASHLIGHT: {},
-        WEATHER: { city: params.city || "Jaipur" },
-        ALARM: { hour: params.hour ?? 7, minute: params.minute ?? 0 },
-        TIMER: { seconds: params.seconds ?? 60 },
-        CALL: { number: params.number || "" },
-        SMS: { number: params.number || "", body: params.body || "" },
-        NOTE_ADD: { text: params.text || "" },
-        NOTE_LIST: {},
-        OPEN_APP: { query: params.query || "" },
-        WEB_SEARCH: { query: params.query || "" },
-        OPEN_URL: { url: params.url || "" }
-      };
-      if (map[j.action]) action = { type: j.action, ...map[j.action] };
-    }
-    return { text: j.reply || raw.trim(), action };
-  } catch {
-    return { text: raw.trim(), action: null };
-  }
-}
-
-// ---------------------------------------------------------------- main flow
-let history = [];
-
-async function handleUserText(text) {
-  const t = text.trim();
-  if (!t) return;
-  stopSpeak();
-  addMessage(t, "user");
-  history.push({ text: t, isUser: true });
-
-  const intent = parseCommand(t);
-  if (intent && intent.type === "MEMORY") {
-    localStorage.setItem("jarvis_user_name", intent.name);
-    addBot(`Bahut achha ${intent.name}, ab main aapko yaad rakh lunga.`);
-    history.push({ text: "naam yaad rakha", isUser: false });
-    return;
-  }
-
-  if (intent && intent.type !== "UNKNOWN" && intent.type !== "CREATOR_HELP") {
-    setStatus("thinking");
-    let out = null;
-    if (intent.type === "WEATHER") out = await weather(intent.city);
-    else out = executeLocal(intent);
-    if (out && typeof out === "object") {
-      addBot(out.msg);
-      history.push({ text: out.msg, isUser: false });
-    } else if (typeof out === "string") {
-      addBot(out);
-      history.push({ text: out, isUser: false });
-    }
-    setStatus("idle");
-    return;
-  }
-
-  setStatus("thinking");
-  try {
-    const reply = await brainReply(history);
-    if (reply.action) {
-      const out = executeLocal(reply.action);
-      const msg = reply.text ? reply.text : out;
-      addBot(msg);
-      history.push({ text: msg, isUser: false });
-    } else {
-      addBot(reply.text || "(Khaali jawab mila, dobara puchiye.)");
-      history.push({ text: reply.text, isUser: false });
-    }
-  } catch (e) {
-    addBot("Jawab nahi mil paya: " + (e.message || "internet check kariye"));
-  }
-  setStatus("idle");
-}
-
-input.addEventListener("keydown", (e) => { if (e.key === "Enter") { handleUserText(input.value); input.value = ""; } });
-input.addEventListener("input", () => { sendBtn.disabled = !input.value.trim(); });
-sendBtn.onclick = () => { handleUserText(input.value); input.value = ""; };
-
-// ---------------------------------------------------------------- dialogs
-const keyDialog = document.getElementById("key-dialog");
-const notesDialog = document.getElementById("notes-dialog");
-document.getElementById("key-btn").onclick = () => {
-  document.getElementById("key-input").value = localStorage.getItem("gemini_key") || "";
-  keyDialog.showModal();
-};
-document.getElementById("key-save").onclick = () => {
-  localStorage.setItem("gemini_key", document.getElementById("key-input").value.trim());
-  keyDialog.close();
-  addBot("API key aa gayi — ab main poori tarah taiyaar hoon!");
-};
-document.getElementById("key-close").onclick = () => keyDialog.close();
-
-document.getElementById("notes-btn").onclick = () => {
-  const list = document.getElementById("notes-list");
-  const notes = loadNotes();
-  list.innerHTML = notes.length ? "" : '<div class="hint">Abhi koi note nahi hai. "Note karo: ..." likhiye.</div>';
-  notes.forEach((n, i) => {
-    const d = document.createElement("div");
-    d.className = "note";
-    d.innerHTML = `<div>${n.text}<small>${n.time}</small></div>`;
-    const del = document.createElement("button");
-    del.textContent = "🗑";
-    del.onclick = () => { const arr = loadNotes(); arr.splice(i, 1); saveNotes(arr); document.getElementById("notes-btn").click(); };
-    d.appendChild(del);
-    list.appendChild(d);
-  });
-  notesDialog.showModal();
-};
-document.getElementById("notes-close").onclick = () => notesDialog.close();
-
-// ---------------------------------------------------------------- reactor + waveform
-const reactor = document.getElementById("reactor");
-const rctx = reactor.getContext("2d");
-const wave = document.getElementById("wave");
-const wctx = wave.getContext("2d");
-let t0 = performance.now();
-
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  const rw = reactor.parentElement;
-  reactor.width = rw.clientWidth * dpr; reactor.height = rw.clientHeight * dpr;
-  wave.width = wave.clientWidth * dpr; wave.height = wave.clientHeight * dpr;
-}
-window.addEventListener("resize", resize);
-resize();
-
-function draw() {
-  const now = performance.now();
-  const t = (now - t0) / 1000;
-  const color = COLORS[state.mode] || COLORS.idle;
-  const pulse = 0.9 + 0.1 * Math.sin(t * 3);
-  const glow = 0.3 + 0.5 * Math.abs(Math.sin(t * 1.6));
-
-  // reactor
-  const W = reactor.width, H = reactor.height;
-  rctx.clearRect(0, 0, W, H);
-  const cx = W / 2, cy = H / 2;
-  const R = Math.min(W, H) / 2 * 0.88;
-  const dpr = window.devicePixelRatio || 1;
-
-  rctx.beginPath();
-  rctx.arc(cx, cy, R * 1.15 * pulse, 0, Math.PI * 2);
-  rctx.fillStyle = color + "1A";
-  rctx.fill();
-
-  rctx.beginPath();
-  rctx.arc(cx, cy, R, 0, Math.PI * 2);
-  rctx.strokeStyle = color + "59";
-  rctx.lineWidth = 2 * dpr;
-  rctx.stroke();
-
-  // rotating arcs
-  for (let i = 0; i < 3; i++) {
-    const a0 = (t * 60 + i * 120) * Math.PI / 180;
-    const grad = rctx.createConicGradient ? rctx.createConicGradient(a0, cx, cy) : null;
-    if (grad) {
-      grad.addColorStop(0, "rgba(0,0,0,0)");
-      grad.addColorStop(0.25, color);
-      grad.addColorStop(0.5, "rgba(0,0,0,0)");
-      grad.addColorStop(1, "rgba(0,0,0,0)");
-      rctx.beginPath();
-      rctx.arc(cx, cy, R, a0, a0 + Math.PI / 2);
-      rctx.strokeStyle = grad;
-      rctx.lineWidth = 6 * dpr;
-      rctx.lineCap = "round";
-      rctx.stroke();
-    }
-  }
-
-  // ticks
-  for (let i = 0; i < 60; i++) {
-    const ang = (i * 6 + t * 120) * Math.PI / 180;
-    const inner = R * 0.84, outer = i % 5 === 0 ? R * 0.75 : R * 0.79;
-    rctx.beginPath();
-    rctx.moveTo(cx + inner * Math.cos(ang), cy + inner * Math.sin(ang));
-    rctx.lineTo(cx + outer * Math.cos(ang), cy + outer * Math.sin(ang));
-    rctx.strokeStyle = color + (i % 5 === 0 ? "CC" : "47");
-    rctx.lineWidth = (i % 5 === 0 ? 2 : 1) * dpr;
-    rctx.lineCap = "round";
-    rctx.stroke();
-  }
-
-  // core
-  const coreR = R * 0.58 * pulse;
-  const rg = rctx.createRadialGradient(cx, cy, 0, cx, cy, coreR);
-  rg.addColorStop(0, color);
-  rg.addColorStop(1, color + "00");
-  rctx.beginPath();
-  rctx.arc(cx, cy, coreR, 0, Math.PI * 2);
-  rctx.fillStyle = rg;
-  rctx.fill();
-
-  rctx.beginPath();
-  rctx.arc(cx, cy, R * 0.62 * pulse, 0, Math.PI * 2);
-  rctx.strokeStyle = color + "B3";
-  rctx.lineWidth = 2 * dpr;
-  rctx.stroke();
-
-  rctx.beginPath();
-  rctx.arc(cx, cy, R * 0.14 * pulse, 0, Math.PI * 2);
-  rctx.fillStyle = color + "E6";
-  rctx.fill();
-
-  // waveform
-  const ww = wave.width, wh = wave.height;
-  wctx.clearRect(0, 0, ww, wh);
-  const active = state.mode === "listening" || state.mode === "speaking";
-  const n = 26;
-  for (let i = 0; i < n; i++) {
-    const h = active ? 0.25 + 0.75 * Math.abs(Math.sin(i * 0.9 + t * 4)) : 0.08;
-    const bw = ww / n;
-    const bh = wh * h;
-    wctx.fillStyle = color + (active ? "D9" : "33");
-    const x = i * bw + bw * 0.2, y = wh - bh;
-    const r = Math.min(bw * 0.3, 3 * dpr);
-    if (wctx.roundRect) {
-      wctx.beginPath();
-      wctx.roundRect(x, y, bw * 0.6, bh, r);
-      wctx.fill();
-    } else {
-      wctx.fillRect(x, y, bw * 0.6, bh);
-    }
-  }
-
+  ctx.restore();
+  const g = ctx.createRadialGradient(c.x,c.y,10,c.x,c.y,r*0.58);
+  g.addColorStop(0,e.color); g.addColorStop(1,e.color+"00");
+  ctx.beginPath(); ctx.arc(c.x,c.y,r*0.58,0,7); ctx.fillStyle=g; ctx.fill();
+  ctx.font="34px serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(e.face, c.x, c.y);
+  rot += 0.01;
   requestAnimationFrame(draw);
 }
-requestAnimationFrame(draw);
+draw();
 
-// ---------------------------------------------------------------- init
-setStatus("idle");
-addMessage(greetingText(), "system");
-history.push({ text: greetingText(), isUser: false });
+function renderModes(){
+  const box=document.getElementById('modes'); box.innerHTML='';
+  MODES.forEach(m=>{
+    const d=document.createElement('div');
+    d.className='chip'+(state.mode===m.k?' on':''); d.textContent=m.label;
+    d.onclick=()=>{ state.mode=m.k; renderModes(); };
+    box.appendChild(d);
+  });
+}
+function renderEmotions(){
+  const box=document.getElementById('emotions'); box.innerHTML='';
+  EMOTIONS.forEach(e=>{
+    const d=document.createElement('div'); d.className='em';
+    d.innerHTML='<b>'+e.face+'</b>'+e.label+' · <span style="color:var(--dim)">'+e.speed.toFixed(2)+'×</span>';
+    d.onclick=()=>{ document.getElementById('inp').value=e.label+' — आज कुछ खास हुआ'; };
+    box.appendChild(d);
+  });
+}
+function setEmo(k){
+  state.emo=k; const e=EMO[k];
+  document.getElementById('mood').textContent=e.label;
+  document.getElementById('mood').style.color=e.color;
+  document.getElementById('status').textContent=(state.mode==='SMART'?'SMART':'')+' • '+k+' • speed '+e.speed;
+}
+function addMsg(text, me){
+  const c=document.getElementById('chat');
+  const d=document.createElement('div'); d.className='msg'+(me?' me':'');
+  d.innerHTML=(me?'<span class="tag">आप</span>':'<span class="tag">J.A.R.V.I.S.</span>')+text;
+  c.appendChild(d); c.scrollTop=c.scrollHeight;
+}
+function reply(userText, emoKey){
+  const emo = emoKey || detect(userText);
+  setEmo(emo);
+  const who = document.getElementById('who').value.trim();
+  if (who) { state.facts.push(who); }
+  const name = state.facts.length ? state.facts[0].split(/[ ,]/)[0] : 'sahab';
+  const e = EMO[emo];
+  const lines = {
+    HAPPY: "वाह "+name+"! ये सुनकर मज़ा आ गया 😄 तुम्हारे चैनल के लिए बहुत बढ़िया खबर है।",
+    SAD: "अरे नहीं "+name+"... ये सुनकर दुख हुआ। मैं तुम्हारे साथ हूँ, सब ठीक हो जाएगा।",
+    ANGRY: "ठंडा रहो "+name+", गुस्सा ठीक है पर हम शांति से सोचेंगे — मैं समझ सकता हूँ।",
+    CALM: "हाँ "+name+", शांत रहो। बात साफ़ सुनता हूँ, हल निकालेंगे।",
+    ENCOURAGING: "बस "+name+", हिम्मत रखो! तुम कर लोगे, मैं तुम्हारे साथ हूँ 💪",
+    THINKING: "अच्छा सवाल "+name+"... देखो, पहले तुम्हारा चैनल और ऑडियंस समझता हूँ, फिर कदम बताऊँगा।",
+    NEUTRAL: "हाँ "+name+", सुन रहा हूँ। बताओ क्या करना है — बात, नोट, चैनल या कोई काम?",
+  };
+  let text = lines[emo] || lines.NEUTRAL;
+  const r = route(state.mode, emo);
+  if (r.free) text += "\n(ElevenLabs credits खत्म — फ़ोन वॉइस चल रही है)";
+  addMsg(text, false);
+  document.getElementById('route').textContent =
+    "Voice router: mode "+state.mode+" + emotion "+emo+" → "+r.prov+" • speed "+e.speed+"× • ElevenLabs style "+e.style+" / stability "+e.stab;
+  speak(text);
+}
+function speak(text){
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang='hi-IN'; u.rate = EMO[state.emo].speed;
+  speechSynthesis.speak(u);
+}
+document.getElementById('send').onclick = ()=>{
+  const t = document.getElementById('inp').value.trim();
+  if(!t) return;
+  addMsg(t, true); reply(t); document.getElementById('inp').value='';
+};
+document.getElementById('speak').onclick = ()=>{
+  const last = document.querySelectorAll('#chat .msg:not(.me)');
+  if(last.length) speak(last[last.length-1].innerText);
+};
+document.getElementById('reset').onclick = ()=>{ document.getElementById('chat').innerHTML=''; state.facts=[]; setEmo('NEUTRAL'); };
+document.getElementById('inp').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); document.getElementById('send').click(); }});
+renderModes(); renderEmotions(); setEmo('NEUTRAL');
+addMsg("Namaste sahab! Main J.A.R.V.I.S. हूँ — तुम्हारा लाइविंग AI दोस्त। बात करो, मैं महसूस करूँगा, याद रखूँगा और भावना के साथ जवाब दूँगा।");
 </script>
 </body>
 </html>
