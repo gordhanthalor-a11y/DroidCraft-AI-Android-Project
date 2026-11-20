@@ -359,9 +359,8 @@ fun JarvisScreen(
                 }
             }
         }
-    }
 
-    if (!liveNotice.isNullOrBlank()) {
+        if (!liveNotice.isNullOrBlank()) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
