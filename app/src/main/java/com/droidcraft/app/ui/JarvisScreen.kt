@@ -206,7 +206,7 @@ fun JarvisScreen(
             "window.setConnectionStatus(${JSONObject.quote(statusLabel)},${JSONObject.quote(finalCaption)});" +
             "window.setPowerState(${liveStatus.isActive()});"
         view.post {
-            if (!view.isDestroyed) view.evaluateJavascript(js, null)
+            if (view.isAttachedToWindow) view.evaluateJavascript(js, null)
         }
     }
 
