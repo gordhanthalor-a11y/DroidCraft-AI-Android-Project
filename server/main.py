@@ -11,15 +11,19 @@ import time
 import threading
 import logging
 import tempfile
+import uuid
+from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, FileResponse
 from pydantic import BaseModel
 
 from tts import synthesize, voices, qc_video, TtsError
+from dubbing import prepare as dub_prepare, render as dub_render, load_job as dub_job
+from clipper import cut as clip_cut, load_job as clip_job
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jarvis-social")
@@ -143,6 +147,75 @@ async def qc(file: UploadFile = File(...)):
         return qc_video(path)
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+# ------------------------------------------------------------------ B3 Dubbing
+
+class DubPrepareIn(BaseModel):
+    url: str
+    lang: str = "hi"
+
+
+@app.post("/api/v1/dub/prepare")
+def dub_prepare_ep(req: DubPrepareIn):
+    job_id = uuid4().hex[:12]
+    return dub_prepare(job_id, req.url, req.lang)
+
+
+@app.get("/api/v1/dub/{job_id}")
+def dub_status(job_id: str):
+    return dub_job(job_id)
+
+
+class DubRenderIn(BaseModel):
+    job_id: str
+    script: str
+    voice: str = ""
+    provider: str = "smallest"
+    speed: float = 1.0
+
+
+@app.post("/api/v1/dub/render")
+def dub_render_ep(req: DubRenderIn):
+    return dub_render(req.job_id, req.script, req.voice, req.provider, req.speed)
+
+
+@app.get("/api/v1/dub/{job_id}/file")
+def dub_file(job_id: str):
+    job = dub_job(job_id)
+    if not job.get("output"):
+        raise HTTPException(status_code=404, detail="output नहीं मिला")
+    return FileResponse(job["output"], media_type="video/mp4")
+
+
+# ------------------------------------------------------------------ B4 Clipper
+
+class ClipIn(BaseModel):
+    url: str
+    clip_sec: int = 60
+    layout: str = "facecam_top"
+    credit: str = "@GTMarwadiVlogs"
+    parts: int = 1
+
+
+@app.post("/api/v1/clip")
+def clip_ep(req: ClipIn):
+    job_id = uuid4().hex[:12]
+    return clip_cut(job_id, req.url, req.clip_sec, req.layout, req.credit, req.parts)
+
+
+@app.get("/api/v1/clip/{job_id}")
+def clip_status(job_id: str):
+    return clip_job(job_id)
+
+
+@app.get("/api/v1/clip/{job_id}/file/{index}")
+def clip_file(job_id: str, index: int):
+    job = clip_job(job_id)
+    for c in job.get("clips", []):
+        if c["index"] == index:
+            return FileResponse(c["file"], media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="clip नहीं मिला")
 
 @app.post("/api/v1/posts/sync")
 def sync_posts(posts: list[PostIn]):
