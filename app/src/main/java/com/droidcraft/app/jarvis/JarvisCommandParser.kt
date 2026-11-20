@@ -9,6 +9,18 @@ object JarvisCommandParser {
 
     private val HINDI = "\\u0900-\\u097F"
 
+    private val GREETINGS = listOf(
+        "hello", "hi", "hey", "namaste", "namaskar", "salaam", "salam",
+        "ram ram", "radhe radhe", "good morning", "good afternoon", "good evening",
+        "good night", "pranam", "aadab", "hii", "helo"
+    )
+
+    private val GREETINGS = listOf(
+        "hello", "hi", "hey", "namaste", "namaskar", "salaam", "salam",
+        "ram ram", "radhe radhe", "good morning", "good afternoon", "good evening",
+        "good night", "pranam", "aadab", "hii", "helo"
+    )
+
     fun parse(raw: String): JarvisIntent? {
         val text = normalize(raw)
         if (text.isBlank()) return null
@@ -18,9 +30,7 @@ object JarvisCommandParser {
                 "introduce yourself", "apna parichay", "tumhara naam", "aap kaun")) {
             return JarvisIntent(JarvisIntentType.IDENTITY)
         }
-        if (hasWord(text, "hello", "hi", "hey", "namaste", "namaskar", "salaam", "salam",
-                "ram ram", "radhe radhe", "good morning", "good afternoon", "good evening",
-                "good night", "pranam", "aadab", "hii", "helo")) {
+        if (isGreeting(text)) {
             return JarvisIntent(JarvisIntentType.GREETING)
         }
 
@@ -129,7 +139,7 @@ object JarvisCommandParser {
         }
 
         // ---------- Creator help (Gemini ko bhejna hai) ----------
-        if (hasWord(text, "video idea", "script", "vlog", "youtube", "channel", "thumbnail",
+        if (hasWord(text, "video idea", "ideas", "script", "vlog", "youtube", "channel", "thumbnail",
                 "seo", "tags", "description", "title", "content", "shorts", "idea")) {
             return JarvisIntent(JarvisIntentType.CREATOR_HELP)
         }
@@ -191,7 +201,7 @@ object JarvisCommandParser {
     private fun extractNoteText(text: String): String {
         val m = Regex("\\b(?:add\\s+note|note\\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo)|remember|yaad\\s+(?:rakho|rakh|dharak|dharo))\\s*:?\\s*(.+)$")
             .find(text) ?: return ""
-        return m.groupValues[1].trim()
+        return m.groupValues[1].trim().trimEnd('.', '?', '!', ',')
     }
 
     private fun extractCity(text: String): String {

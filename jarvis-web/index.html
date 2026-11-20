@@ -249,7 +249,7 @@ micBtn.onclick = startListening;
 
 // ---------------------------------------------------------------- command parser (JS port)
 const HINDI = "\\u0900-\\u097F";
-const normalize = (s) => s.trim().toLowerCase().replace(/[?!.,;"']+/g, "").replace(/\s+/g, " ");
+const normalize = (s) => s.trim().toLowerCase().replace(/[?!,;"']+/g, "").replace(/\s+/g, " ");
 const escapeReg = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const hasWord = (t, words) => words.some(w => new RegExp(`\\b${escapeReg(w)}\\b`).test(t));
 
@@ -259,7 +259,8 @@ function parseCommand(raw) {
 
   if (hasWord(text, ["who are you","kaun ho","tum kaun","tera naam","your name","tumhara naam","aap kaun"]))
     return { type: "IDENTITY" };
-  if (hasWord(text, ["hello","hi","hey","namaste","namaskar","salaam","salam","good morning","good afternoon","good evening","good night","pranam","helo"]))
+  if (["hello","hi","hey","namaste","namaskar","salaam","salam","ram ram","radhe radhe","good morning","good afternoon","good evening","good night","pranam","aadab","hii","helo"]
+      .some(w => new RegExp(`^${escapeReg(w)}\\b`).test(text)))
     return { type: "GREETING" };
 
   const nameMatch = text.match(new RegExp(`\\b(?:mera naam|my name is)\\s+([${HINDI} A-Za-z]{2,24})`));
@@ -279,7 +280,7 @@ function parseCommand(raw) {
   if (hasWord(text, ["note","notes"]) || /\byaad\s+(?:rakho|rakh|dharak|dharo)\b/.test(text)) {
     if (["dikha","dikhao","list","kaunsi","sab","all"].some(w => text.includes(w))) return { type: "NOTE_LIST" };
     const m = text.match(/\b(?:add\s+note|note\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo)|remember|yaad\s+(?:rakho|rakh|dharak|dharo))\s*:?\s*(.+)$/);
-    const noteText = m ? m[1].trim() : "";
+    const noteText = m ? m[1].trim().replace(/[.?!,]+$/, "") : "";
     return noteText ? { type: "NOTE_ADD", text: noteText } : { type: "NOTE_LIST" };
   }
 
@@ -338,7 +339,7 @@ function parseCommand(raw) {
 
   if (hasWord(text, ["joke","chutkula","hasa","hasao","comedy","funny","majedaar"])) return { type: "JOKE" };
 
-  if (hasWord(text, ["video idea","script","vlog","youtube","channel","thumbnail","seo","tags","description","title","content","shorts","idea"]))
+  if (hasWord(text, ["video idea","ideas","script","vlog","youtube","channel","thumbnail","seo","tags","description","title","content","shorts","idea"]))
     return { type: "CREATOR_HELP" };
 
   if (hasWord(text, ["time","waqt","samay","baje","kitne baje"])) return { type: "TIME" };
