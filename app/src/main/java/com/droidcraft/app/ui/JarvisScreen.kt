@@ -2,8 +2,12 @@ package com.droidcraft.app.ui
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +40,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.Send
@@ -51,6 +56,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +85,7 @@ import com.droidcraft.app.jarvis.JarvisMessage
 import com.droidcraft.app.jarvis.JarvisMessageKind
 import com.droidcraft.app.jarvis.JarvisNote
 import com.droidcraft.app.jarvis.JarvisViewModel
+import com.droidcraft.app.jarvis.wake.WakeWordService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -110,6 +117,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
     val notes by viewModel.notes.collectAsState()
     val autoSpeak by viewModel.autoSpeak.collectAsState()
     val userName by viewModel.userName.collectAsState()
+    val handsFree by viewModel.handsFree.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
@@ -168,6 +176,22 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
         if (granted) launchSpeech() else recordPermission.launch(Manifest.permission.RECORD_AUDIO)
     }
 
+    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.setHandsFree(true)
+    }
+
+    fun toggleHandsFree() {
+        if (handsFree) {
+            viewModel.setHandsFree(false)
+        } else {
+            val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            if (granted) viewModel.setHandsFree(true)
+            else notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     fun submit(text: String) {
         if (text.isBlank()) return
         if (JarvisCommandParser.isFlashlight(text)) {
@@ -182,6 +206,22 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
         } else {
             viewModel.handleUserText(text)
         }
+    }
+
+    // "Hey Jarvis" wake hone par turant sunna shuru karo.
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == WakeWordService.ACTION_WAKE_DETECTED) startListening()
+            }
+        }
+        val filter = IntentFilter(WakeWordService.ACTION_WAKE_DETECTED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
 
     LaunchedEffect(messages.size) {
@@ -221,6 +261,13 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                         if (autoSpeak) "🔊" else "🔇",
                         fontSize = 18.sp,
                         modifier = Modifier.padding(4.dp)
+                    )
+                }
+                IconButton(onClick = { toggleHandsFree() }) {
+                    Icon(
+                        Icons.Default.Hearing,
+                        contentDescription = "Hey Jarvis",
+                        tint = if (handsFree) JarvisColors.cyan else JarvisColors.slate
                     )
                 }
                 IconButton(onClick = { showNotes = true }) {

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.droidcraft.app.jarvis.wake.WakeWordService
 import java.util.Calendar
 import java.util.Locale
 
@@ -50,6 +51,9 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val _ttsReady = MutableStateFlow(false)
     val ttsReady: StateFlow<Boolean> = _ttsReady.asStateFlow()
 
+    private val _handsFree = MutableStateFlow(prefs.getBoolean("jarvis_hands_free", false))
+    val handsFree: StateFlow<Boolean> = _handsFree.asStateFlow()
+
     private var idCounter = 0L
 
     init {
@@ -68,6 +72,14 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun onMicDenied() {
         appendBot("Voice ke liye microphone permission zaroori hai. Settings se allow kar dijiye.")
+    }
+
+    /** "Hey Jarvis" background wake-word listener on/off. */
+    fun setHandsFree(enabled: Boolean) {
+        prefs.edit().putBoolean("jarvis_hands_free", enabled).apply()
+        _handsFree.value = enabled
+        val app = getApplication<Application>()
+        if (enabled) WakeWordService.start(app) else WakeWordService.stop(app)
     }
 
     // ------------------------------------------------------------------ chat
