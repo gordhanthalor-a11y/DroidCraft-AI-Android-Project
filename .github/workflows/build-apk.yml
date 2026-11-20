@@ -23,11 +23,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android build tools for signature verification
-        run: sdkmanager "build-tools;35.0.0"
+      - name: Validate committed PKCS#12 debug keystore
+        env:
+          DEBUG_KEYSTORE_PASSWORD: DroidCraftDebugKey2026
+        run: >-
+          keytool -list -keystore keystore/droidcraft-debug.keystore
+          -storetype PKCS12 -storepass "$DEBUG_KEYSTORE_PASSWORD" -alias droidcraft
+          >/dev/null
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug
@@ -39,13 +41,12 @@ jobs:
           set -euo pipefail
           apk="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$apk"
-          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          if [[ -z "$sdk_root" ]]; then
-            echo "::error::Android SDK path is not set."
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          apksigner="$(find "$sdk_root/build-tools" -maxdepth 2 -type f -name apksigner -print | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" || ! -x "$apksigner" ]]; then
+            echo "::error::Could not find Android SDK apksigner under $sdk_root/build-tools."
             exit 1
           fi
-          apksigner="$sdk_root/build-tools/35.0.0/apksigner"
-          test -x "$apksigner"
           "$apksigner" verify --verbose --print-certs "$apk"
           sha256="$(sha256sum "$apk" | awk '{print $1}')"
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
@@ -84,12 +85,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android build tools for signature verification
-        run: sdkmanager "build-tools;35.0.0"
-
       - name: Verify downloaded artifact is byte-identical and valid
         shell: bash
         env:
@@ -98,13 +93,12 @@ jobs:
           set -euo pipefail
           apk="verified-apk/app-debug.apk"
           test -s "$apk"
-          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          if [[ -z "$sdk_root" ]]; then
-            echo "::error::Android SDK path is not set."
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          apksigner="$(find "$sdk_root/build-tools" -maxdepth 2 -type f -name apksigner -print | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" || ! -x "$apksigner" ]]; then
+            echo "::error::Could not find Android SDK apksigner under $sdk_root/build-tools."
             exit 1
           fi
-          apksigner="$sdk_root/build-tools/35.0.0/apksigner"
-          test -x "$apksigner"
           "$apksigner" verify --verbose --print-certs "$apk"
           actual_sha256="$(sha256sum "$apk" | awk '{print $1}')"
           if [[ "$actual_sha256" != "$EXPECTED_SHA256" ]]; then
