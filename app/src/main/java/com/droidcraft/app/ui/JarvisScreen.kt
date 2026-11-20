@@ -4,8 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -64,6 +68,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.droidcraft.app.jarvis.JarvisMessage
+import kotlinx.coroutines.delay
 import com.droidcraft.app.jarvis.JarvisViewModel
 import com.droidcraft.app.model.LiveConversationMessage
 import com.droidcraft.app.model.LiveConversationStatus
@@ -72,6 +77,7 @@ import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
 import org.json.JSONObject
 import java.util.Locale
 
+private const val JARVIS_HUD_TAG = "JarvisHUD"
 private val HudRed = Color(0xFFFF1744)
 private val HudSurface = Color(0xFF0C1018)
 private val HudMuted = Color(0xFFBAC3D0)
@@ -99,7 +105,17 @@ fun JarvisScreen(
     val jarvisMessages by jarvisViewModel.messages.collectAsState()
 
     var showHistory by remember { mutableStateOf(false) }
+    var hudLoading by remember { mutableStateOf(true) }
+    var hudReady by remember { mutableStateOf(false) }
+    var hudError by remember { mutableStateOf<String?>(null) }
     val webViewState = remember { mutableStateOf<WebView?>(null) }
+    val reportHudError = rememberUpdatedState(newValue = { message: String ->
+        Log.e(JARVIS_HUD_TAG, message)
+        if (!hudReady) {
+            hudLoading = false
+            hudError = message
+        }
+    })
 
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -132,81 +148,216 @@ fun JarvisScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { viewContext ->
-            val mainHandler = Handler(Looper.getMainLooper())
-            WebView(viewContext).apply {
-                setBackgroundColor(android.graphics.Color.rgb(5, 1, 2))
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = false
-                settings.allowFileAccess = true
-                settings.allowContentAccess = false
-                settings.javaScriptCanOpenWindowsAutomatically = false
-                settings.setSupportMultipleWindows(false)
-                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                webChromeClient = WebChromeClient()
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                        // The HUD is a bundled, local asset; never let its WebView navigate off-device.
-                        return request?.url?.scheme != "file"
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { viewContext ->
+                val mainHandler = Handler(Looper.getMainLooper())
+                WebView(viewContext).apply {
+                    setBackgroundColor(android.graphics.Color.rgb(5, 1, 2))
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = true
+                    settings.allowContentAccess = false
+                    settings.javaScriptCanOpenWindowsAutomatically = false
+                    settings.setSupportMultipleWindows(false)
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                            val detail = "${message.messageLevel()}: ${message.message()} " +
+                                "(${message.sourceId()}:${message.lineNumber()})"
+                            when (message.messageLevel()) {
+                                ConsoleMessage.MessageLevel.ERROR -> {
+                                    Log.e(JARVIS_HUD_TAG, detail)
+                                    reportHudError.value(detail)
+                                }
+                                ConsoleMessage.MessageLevel.WARNING -> Log.w(JARVIS_HUD_TAG, detail)
+                                else -> Log.d(JARVIS_HUD_TAG, detail)
+                            }
+                            return true
+                        }
+                    }
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                            super.onPageStarted(view, url, favicon)
+                            hudLoading = true
+                            hudReady = false
+                            hudError = null
+                            Log.i(JARVIS_HUD_TAG, "Loading HUD page: $url")
+                        }
+
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            val page = view ?: return
+                            val readinessCheck = "(function(){" +
+                                "var core=document.querySelector('.reactor-housing');" +
+                                "if(!window.__JARVIS_HUD_READY||!core)return false;" +
+                                "var r=core.getBoundingClientRect();return r.width>0&&r.height>0;" +
+                                "})()"
+                            page.evaluateJavascript(readinessCheck) { result ->
+                                val ready = result == "true"
+                                hudLoading = false
+                                hudReady = ready
+                                if (ready) {
+                                    hudError = null
+                                    Log.i(JARVIS_HUD_TAG, "HUD JavaScript initialized and reactor is laid out")
+                                } else {
+                                    val message = "HUD page loaded, but its JavaScript UI did not initialize. " +
+                                        "Check Logcat tag $JARVIS_HUD_TAG."
+                                    hudError = message
+                                    Log.e(JARVIS_HUD_TAG, message)
+                                }
+                            }
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?
+                        ) {
+                            super.onReceivedError(view, request, error)
+                            if (request?.isForMainFrame == true) {
+                                val message = "HUD page load failed (${error?.errorCode}): ${error?.description}"
+                                Log.e(JARVIS_HUD_TAG, message)
+                                hudLoading = false
+                                hudReady = false
+                                hudError = message
+                            }
+                        }
+
+                        override fun onRenderProcessGone(
+                            view: WebView,
+                            detail: RenderProcessGoneDetail
+                        ): Boolean {
+                            val message = "Android WebView renderer exited (crashed=${detail.didCrash()})."
+                            Log.e(JARVIS_HUD_TAG, message)
+                            hudLoading = false
+                            hudReady = false
+                            hudError = message
+                            return true
+                        }
+
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            // The HUD is a bundled, local asset; never let its WebView navigate off-device.
+                            return request?.url?.scheme != "file"
+                        }
+                    }
+                    addJavascriptInterface(
+                        JarvisHudBridge(
+                            mainHandler = mainHandler,
+                            orbClickAction = openHistoryOrStart,
+                            micClickAction = openHistoryOrStart,
+                            powerClickAction = toggleLive,
+                            studioClickAction = openStudio,
+                            historyClickAction = openHistory,
+                            settingsClickAction = openSettings,
+                            hudErrorAction = reportHudError
+                        ),
+                        "JarvisBridge"
+                    )
+                    webViewState.value = this
+                    Log.i(
+                        JARVIS_HUD_TAG,
+                        "WebView config: JavaScript=${settings.javaScriptEnabled}, DOM storage=${settings.domStorageEnabled}"
+                    )
+                    loadUrl("file:///android_asset/jarvis-hud/index.html")
+                }
+            },
+            update = { view ->
+                if (webViewState.value !== view) webViewState.value = view
+            }
+        )
+
+        DisposableEffect(Unit) {
+            onDispose {
+                webViewState.value?.let { view ->
+                    runCatching {
+                        view.stopLoading()
+                        view.removeJavascriptInterface("JarvisBridge")
+                        view.destroy()
+                    }.onFailure { Log.w(JARVIS_HUD_TAG, "Failed to dispose WebView cleanly", it) }
+                }
+                webViewState.value = null
+            }
+        }
+
+        LaunchedEffect(webViewState.value, hudLoading) {
+            val page = webViewState.value ?: return@LaunchedEffect
+            if (!hudLoading) return@LaunchedEffect
+            delay(12_000)
+            if (webViewState.value === page && hudLoading && !hudReady && hudError == null) {
+                hudLoading = false
+                hudError = "Timed out waiting for the Jarvis HUD to initialize. Check Logcat tag $JARVIS_HUD_TAG."
+                Log.e(JARVIS_HUD_TAG, hudError.orEmpty())
+            }
+        }
+
+        LaunchedEffect(webViewState.value, liveStatus, effectiveVoice, selectedVoice) {
+            val view = webViewState.value ?: return@LaunchedEffect
+            val (orbState, statusLabel, caption) = when (liveStatus) {
+                LiveConversationStatus.CONNECTING -> Triple("thinking", "CONNECTING", "CONNECTING TO GEMINI LIVE...")
+                LiveConversationStatus.LISTENING -> Triple("listening", "LIVE", "LIVE TALK • SPEAK NATURALLY")
+                LiveConversationStatus.SPEAKING -> Triple("speaking", "LIVE", "JARVIS IS REPLYING")
+                LiveConversationStatus.ERROR -> Triple("idle", "ERROR", "CONNECTION FAILED • SEE DETAILS BELOW")
+                LiveConversationStatus.IDLE -> Triple("idle", "READY", "SYSTEM ONLINE • TAP TO START LIVE TALK")
+            }
+            val voiceCaption = when (effectiveVoice ?: selectedVoice) {
+                LiveVoiceMode.ELEVENLABS -> "ELEVENLABS • BUNTY VOICE"
+                LiveVoiceMode.GEMINI_LIVE -> "GEMINI LIVE • FREE VOICE"
+            }
+            val finalCaption = if (liveStatus == LiveConversationStatus.LISTENING || liveStatus == LiveConversationStatus.SPEAKING) {
+                voiceCaption
+            } else caption
+            val js = "window.setOrbState(${JSONObject.quote(orbState)},0);" +
+                "window.setConnectionStatus(${JSONObject.quote(statusLabel)},${JSONObject.quote(finalCaption)});" +
+                "window.setPowerState(${liveStatus.isActive()});"
+            view.post {
+                if (view.isAttachedToWindow) {
+                    view.evaluateJavascript(js) { result ->
+                        if (result == null || result == "null") {
+                            Log.w(JARVIS_HUD_TAG, "WebView did not return a result for native HUD state update")
+                        }
                     }
                 }
-                addJavascriptInterface(
-                    JarvisHudBridge(
-                        mainHandler = mainHandler,
-                        orbClickAction = openHistoryOrStart,
-                        micClickAction = openHistoryOrStart,
-                        powerClickAction = toggleLive,
-                        studioClickAction = openStudio,
-                        historyClickAction = openHistory,
-                        settingsClickAction = openSettings
-                    ),
-                    "JarvisBridge"
-                )
-                webViewState.value = this
-                loadUrl("file:///android_asset/jarvis-hud/index.html")
             }
-        },
-        update = { view ->
-            if (webViewState.value !== view) webViewState.value = view
         }
-    )
 
-    DisposableEffect(Unit) {
-        onDispose {
-            webViewState.value?.let { view ->
-                runCatching {
-                    view.stopLoading()
-                    view.removeJavascriptInterface("JarvisBridge")
-                    view.destroy()
+        if (hudLoading || hudError != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xF20C1018),
+                tonalElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (hudLoading) {
+                        CircularProgressIndicator(color = HudRed, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                        Text("Loading Jarvis HUD…", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("Preparing the local interface. Navigation remains available below.", color = HudMuted)
+                    } else {
+                        Text("Jarvis HUD could not start", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(hudError.orEmpty(), color = HudMuted, style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                hudReady = false
+                                hudLoading = true
+                                hudError = null
+                                webViewState.value?.let { page ->
+                                    page.stopLoading()
+                                    page.reload()
+                                }
+                            }) { Text("Retry") }
+                            TextButton(onClick = onOpenChat) { Text("Open Chat") }
+                        }
+                    }
                 }
             }
-            webViewState.value = null
-        }
-    }
-
-    LaunchedEffect(webViewState.value, liveStatus, effectiveVoice, selectedVoice) {
-        val view = webViewState.value ?: return@LaunchedEffect
-        val (orbState, statusLabel, caption) = when (liveStatus) {
-            LiveConversationStatus.CONNECTING -> Triple("thinking", "CONNECTING", "CONNECTING TO GEMINI LIVE...")
-            LiveConversationStatus.LISTENING -> Triple("listening", "LIVE", "LIVE TALK • SPEAK NATURALLY")
-            LiveConversationStatus.SPEAKING -> Triple("speaking", "LIVE", "JARVIS IS REPLYING")
-            LiveConversationStatus.ERROR -> Triple("idle", "ERROR", "CONNECTION FAILED • SEE DETAILS BELOW")
-            LiveConversationStatus.IDLE -> Triple("idle", "READY", "SYSTEM ONLINE • TAP TO START LIVE TALK")
-        }
-        val voiceCaption = when (effectiveVoice ?: selectedVoice) {
-            LiveVoiceMode.ELEVENLABS -> "ELEVENLABS • BUNTY VOICE"
-            LiveVoiceMode.GEMINI_LIVE -> "GEMINI LIVE • FREE VOICE"
-        }
-        val finalCaption = if (liveStatus == LiveConversationStatus.LISTENING || liveStatus == LiveConversationStatus.SPEAKING) {
-            voiceCaption
-        } else caption
-        val js = "window.setOrbState(${JSONObject.quote(orbState)},0);" +
-            "window.setConnectionStatus(${JSONObject.quote(statusLabel)},${JSONObject.quote(finalCaption)});" +
-            "window.setPowerState(${liveStatus.isActive()});"
-        view.post {
-            if (view.isAttachedToWindow) view.evaluateJavascript(js, null)
         }
     }
 
@@ -275,7 +426,8 @@ private class JarvisHudBridge(
     private val powerClickAction: androidx.compose.runtime.State<() -> Unit>,
     private val studioClickAction: androidx.compose.runtime.State<() -> Unit>,
     private val historyClickAction: androidx.compose.runtime.State<() -> Unit>,
-    private val settingsClickAction: androidx.compose.runtime.State<() -> Unit>
+    private val settingsClickAction: androidx.compose.runtime.State<() -> Unit>,
+    private val hudErrorAction: androidx.compose.runtime.State<(String) -> Unit>
 ) {
     @JavascriptInterface fun onOrbClicked() = dispatch(orbClickAction)
     @JavascriptInterface fun onMicClicked() = dispatch(micClickAction)
@@ -283,6 +435,13 @@ private class JarvisHudBridge(
     @JavascriptInterface fun onScreenShareClicked() = dispatch(studioClickAction)
     @JavascriptInterface fun onHistoryClicked() = dispatch(historyClickAction)
     @JavascriptInterface fun onSettingsClicked() = dispatch(settingsClickAction)
+
+    @JavascriptInterface
+    fun onHudError(message: String) {
+        val safeMessage = message.take(1200)
+        Log.e(JARVIS_HUD_TAG, "JavaScript reported HUD error: $safeMessage")
+        mainHandler.post { hudErrorAction.value.invoke(safeMessage) }
+    }
 
     private fun dispatch(action: androidx.compose.runtime.State<() -> Unit>) {
         mainHandler.post { action.value.invoke() }

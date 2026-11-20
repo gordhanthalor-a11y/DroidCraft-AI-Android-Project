@@ -70,24 +70,22 @@ fun DroidCraftNavHost(
 
     Scaffold(
         bottomBar = {
-            // The supplied JARVIS HUD already has its own control dock. Keep the
-            // Material navigation bar for the other app screens only.
-            if (current != "jarvis") {
-                NavigationBar {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = current == tab.route,
-                            onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo("jarvis") { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) }
-                        )
-                    }
+            // Keep native navigation visible on every route, including the WebView HUD,
+            // so a rendering failure never traps the user on a blank first screen.
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                tabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = current == tab.route,
+                        onClick = {
+                            navController.navigate(tab.route) {
+                                popUpTo("jarvis") { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label) }
+                    )
                 }
             }
         }

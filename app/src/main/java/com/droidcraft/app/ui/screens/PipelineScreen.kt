@@ -81,11 +81,30 @@ fun PipelineScreen(viewModel: YouTubeAutomationViewModel) {
             } else videos
 
             if (filteredVideos.isEmpty()) {
+                val emptyTitle = selectedStageFilter?.let { "No videos in ${it.displayName}" }
+                    ?: "Your pipeline is empty"
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("No videos in this stage.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(emptyTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Nothing is broken. Videos will appear here after they enter the creator workflow.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             } else {
                 LazyColumn(

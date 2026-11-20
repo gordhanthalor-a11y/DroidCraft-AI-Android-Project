@@ -4,6 +4,32 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
 <title>JARVIS — Mark 85 Arc Core</title>
+<script>
+(function () {
+  window.__JARVIS_HUD_READY = false;
+  function reportHudError(message, source, line, error) {
+    var detail = "[JarvisHUD] " + message;
+    if (source) detail += " at " + source + (line ? ":" + line : "");
+    if (error && error.stack) detail += "\n" + error.stack;
+    console.error(detail);
+    try {
+      if (window.JarvisBridge && typeof window.JarvisBridge.onHudError === "function") {
+        window.JarvisBridge.onHudError(detail);
+      }
+    } catch (bridgeError) {
+      console.error("[JarvisHUD] Could not forward error to Android", bridgeError);
+    }
+  }
+  window.__reportJarvisHudError = reportHudError;
+  window.addEventListener("error", function (event) {
+    reportHudError(event.message || "Unhandled JavaScript error", event.filename, event.lineno, event.error);
+  });
+  window.addEventListener("unhandledrejection", function (event) {
+    var reason = event.reason && event.reason.message ? event.reason.message : String(event.reason || "Unknown rejection");
+    reportHudError("Unhandled promise rejection: " + reason, "", 0, event.reason);
+  });
+})();
+</script>
 <style>
   :root {
     --bg-void: #050102;
@@ -640,6 +666,7 @@
 <script>
 (function() {
   'use strict';
+  try {
 
   const hud = document.getElementById('hud');
   const arcCore = document.getElementById('arc-core');
@@ -864,6 +891,18 @@
   if (btnSettingsBottom) btnSettingsBottom.addEventListener('click', openSettings);
 
   window.setOrbState('idle', 0);
+  window.__JARVIS_HUD_READY = true;
+  document.documentElement.dataset.hudReady = "true";
+  } catch (error) {
+    window.__JARVIS_HUD_READY = false;
+    document.documentElement.dataset.hudReady = "error";
+    var detail = error && error.stack ? error.stack : String(error);
+    if (window.__reportJarvisHudError) {
+      window.__reportJarvisHudError("HUD initialization failed: " + detail, "", 0, error);
+    } else {
+      console.error("[JarvisHUD] HUD initialization failed", error);
+    }
+  }
 })();
 </script>
 </body>
