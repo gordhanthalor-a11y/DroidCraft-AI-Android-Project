@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import android.speech.RecognizerIntent
@@ -39,7 +40,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notes
@@ -87,6 +90,7 @@ import com.droidcraft.app.jarvis.JarvisMessage
 import com.droidcraft.app.jarvis.JarvisMessageKind
 import com.droidcraft.app.jarvis.JarvisNote
 import com.droidcraft.app.jarvis.JarvisViewModel
+import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
 import com.droidcraft.app.jarvis.wake.WakeWordService
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -121,6 +125,9 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
     val userName by viewModel.userName.collectAsState()
     val handsFree by viewModel.handsFree.collectAsState()
     val memories by viewModel.memories.collectAsState()
+    val liveOn by viewModel.liveOn.collectAsState()
+    val liveStatus by viewModel.liveStatus.collectAsState()
+    val liveText by viewModel.liveText.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
@@ -129,6 +136,7 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
     var keyInput by remember { mutableStateOf("") }
     var pendingFlashlight by remember { mutableStateOf<String?>(null) }
     var pendingContact by remember { mutableStateOf<String?>(null) }
+    var a11yOn by remember { mutableStateOf(JarvisAccessibilityService.isEnabled(context)) }
 
     val listState = rememberLazyListState()
     val now = remember { SimpleDateFormat("h:mm a", Locale.ENGLISH).format(Date()) }
@@ -275,8 +283,8 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                         letterSpacing = 3.sp
                     )
                     Text(
-                        "${statusText(reactorState)} • $now • ${userName.ifBlank { "sahab" }}",
-                        color = JarvisColors.slate,
+                        if (liveOn) "LIVE • $liveStatus • $now" else "${statusText(reactorState)} • $now • ${userName.ifBlank { "sahab" }}",
+                        color = if (liveOn) JarvisColors.green else JarvisColors.slate,
                         fontSize = 12.sp
                     )
                 }
@@ -285,6 +293,28 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                         if (autoSpeak) "🔊" else "🔇",
                         fontSize = 18.sp,
                         modifier = Modifier.padding(4.dp)
+                    )
+                }
+                IconButton(onClick = {
+                    a11yOn = JarvisAccessibilityService.isEnabled(context)
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }) {
+                    Icon(
+                        Icons.Default.Accessibility,
+                        contentDescription = "Accessibility",
+                        tint = if (a11yOn) JarvisColors.cyan else JarvisColors.slate
+                    )
+                }
+                IconButton(onClick = { if (liveOn) viewModel.stopLive() else viewModel.startLive() }) {
+                    Icon(
+                        Icons.Default.GraphicEq,
+                        contentDescription = "Live voice",
+                        tint = if (liveOn) JarvisColors.green else JarvisColors.slate
                     )
                 }
                 IconButton(onClick = { toggleHandsFree() }) {
@@ -329,6 +359,22 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
             ) {
                 items(messages, key = { it.id }) { msg ->
                     MessageBubble(msg)
+                }
+            }
+
+            if (liveOn && liveText.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = JarvisColors.green.copy(alpha = 0.10f)
+                ) {
+                    Text(
+                        liveText,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        color = JarvisColors.slateLight,
+                        fontSize = 13.sp
+                    )
                 }
             }
 

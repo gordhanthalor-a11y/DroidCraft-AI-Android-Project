@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.AlarmClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
 import com.droidcraft.app.jarvis.contacts.ContactResolver
 import com.droidcraft.app.jarvis.memory.MemoryManager
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +67,8 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.TIMER -> setTimer(intent.args["seconds"]?.toIntOrNull() ?: 60)
             JarvisIntentType.NOTE_ADD -> addNote(intent.args["text"].orEmpty())
             JarvisIntentType.NOTE_LIST -> listNotes()
+            JarvisIntentType.SCREEN_DUMP -> screenDump(intent.args["query"].orEmpty())
+            JarvisIntentType.TAP -> tapOn(intent.args["target"].orEmpty())
             JarvisIntentType.MEMORY_ADD -> remember(intent.args["text"].orEmpty())
             JarvisIntentType.MEMORY_LIST -> recall(intent.args["query"].orEmpty())
             JarvisIntentType.WEATHER -> withContext(Dispatchers.IO) { weather(intent.args["city"].orEmpty()) }
@@ -316,6 +319,38 @@ class JarvisDevice(private val context: Context) {
         if (text.isBlank()) return JarvisOutcome("Kya yaad rakhun? Likhiye.", false)
         memory.remember(text)
         return JarvisOutcome("Yaad rakh liya: \"$text\"")
+    }
+
+    // ---------------- screen automation ----------------
+
+    private fun screenDump(query: String): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance
+            ?: return JarvisOutcome(
+                "Screen automation band hai. Settings → Accessibility → \"Jarvis Automation\" ON kariye, phir dobara boliye.",
+                false
+            )
+        val text = service.dumpScreen()
+        if (text.isBlank()) return JarvisOutcome("Screen par kuch padha nahi ja raha.", false)
+        val answer = if (query.isBlank()) {
+            text.take(1500).ifBlank { "Screen par kuch padha nahi ja raha." }
+        } else {
+            text.lineSequence().filter { it.contains(query, ignoreCase = true) }.joinToString("\n")
+                .ifBlank { "'$query' screen par nahi mila." }
+        }
+        return JarvisOutcome("Screen par dikha hai:\n$answer")
+    }
+
+    private fun tapOn(target: String): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance
+            ?: return JarvisOutcome(
+                "Screen automation band hai. Settings → Accessibility → \"Jarvis Automation\" ON kariye, phir dobara boliye.",
+                false
+            )
+        return if (service.tapText(target)) {
+            JarvisOutcome("'$target' par click kar diya.")
+        } else {
+            JarvisOutcome("'$target' screen par nahi mila.", false)
+        }
     }
 
     private suspend fun recall(query: String): JarvisOutcome {

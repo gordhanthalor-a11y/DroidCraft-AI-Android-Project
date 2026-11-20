@@ -97,6 +97,23 @@ object JarvisCommandParser {
             return JarvisIntent(JarvisIntentType.DEVICE_INFO)
         }
 
+        // ---------- Screen automation (accessibility) ----------
+        if (hasWord(text, "screen dikhao", "screen dikha", "screen batao", "screen kya hai",
+                "kya dikha raha hai", "kya dikh raha hai", "kya dikhta hai", "what is on the screen",
+                "screen par kya hai", "screen dump", "screen padho")) {
+            return JarvisIntent(JarvisIntentType.SCREEN_DUMP, mapOf("query" to extractScreenQuery(text)))
+        }
+        val tapMatch = Regex("^(?:tap\\s+(?:on\\s+)?|click\\s+(?:on\\s+)?|touch\\s+(?:on\\s+)?|daba\\s*:?\\s*|dabao\\s+|daba\\s+do)\\s*(.+)$").find(text)
+        if (tapMatch != null) {
+            val target = tapMatch.groupValues[1].trim().trimEnd('.', '?', '!')
+            if (target.isNotBlank()) return JarvisIntent(JarvisIntentType.TAP, mapOf("target" to target))
+        }
+        val tapHindi = Regex("^(.+?)\\s+par\\s+(?:click|tap|dabao|daba)\\w*\\s*(?:karo|kar|do)?$").find(text)
+        if (tapHindi != null) {
+            val target = tapHindi.groupValues[1].trim()
+            if (target.isNotBlank()) return JarvisIntent(JarvisIntentType.TAP, mapOf("target" to target))
+        }
+
         // ---------- Weather ----------
         if (hasWord(text, "weather", "mausam", "temperature", "garmi", "baarish", "barish", "thand", "thanda")) {
             return JarvisIntent(JarvisIntentType.WEATHER, mapOf("city" to extractCity(text)))
@@ -228,6 +245,9 @@ object JarvisCommandParser {
 
     private fun extractMemoryQuery(text: String): String =
         Regex("\\b(?:about|baare\\s+mein)\\s+(.+)$").find(text)?.groupValues?.get(1)?.trim().orEmpty()
+
+    private fun extractScreenQuery(text: String): String =
+        Regex("\\b(?:mein|me|par|about|ke\\s+baare\\s+mein)\\s+(.+)$").find(text)?.groupValues?.get(1)?.trim().orEmpty()
 
     private fun extractCity(text: String): String {
         val after = Regex("\\b(?:weather|mausam|temperature|baarish|barish)\\b\\s*(.*)$")

@@ -20,6 +20,8 @@ enum class JarvisIntentType {
     FLASHLIGHT,
     BATTERY,
     DEVICE_INFO,
+    SCREEN_DUMP,
+    TAP,
     MEMORY,
     JOKE,
     GREETING,
