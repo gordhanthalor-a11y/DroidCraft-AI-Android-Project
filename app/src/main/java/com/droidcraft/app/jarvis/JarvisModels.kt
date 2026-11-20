@@ -23,6 +23,8 @@ enum class JarvisIntentType {
     SCREEN_DUMP,
     TAP,
     AUTOMATE,
+    SOCIAL_DASHBOARD,
+    POST_SCHEDULE,
     MEMORY,
     JOKE,
     GREETING,

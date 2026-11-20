@@ -77,6 +77,13 @@ class JarvisDevice(private val context: Context) {
                     intent.args["query"].orEmpty()
                 )
             )
+            JarvisIntentType.SOCIAL_DASHBOARD -> JarvisOutcome(
+                "Social Hub kholo — bottom bar का 'Social' tab. Wahan scheduled/published/failed posts दिखेंगे."
+            )
+            JarvisIntentType.POST_SCHEDULE -> JarvisOutcome(
+                "Social Hub → Schedule icon दबाओ, videos चुनो, date/time सेट करो. " +
+                    "AI captions अपने आप बनेंगी, फिर exact time पर publish हो जाएँगी."
+            )
             JarvisIntentType.MEMORY_ADD -> remember(intent.args["text"].orEmpty())
             JarvisIntentType.MEMORY_LIST -> recall(intent.args["query"].orEmpty())
             JarvisIntentType.WEATHER -> withContext(Dispatchers.IO) { weather(intent.args["city"].orEmpty()) }

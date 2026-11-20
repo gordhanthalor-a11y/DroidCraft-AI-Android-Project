@@ -28,6 +28,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.ACCESS_EXACT_ALARM" />
 
     <!-- Android 11+ package visibility: Jarvis ko installed apps, browser, dialer aur alarm dekhne ke liye -->
     <queries>
@@ -84,6 +88,21 @@
                     android:scheme="https"
                     android:host="api.droidcraft.app"
                     android:pathPrefix="/oauth2/callback" />
+            </intent-filter>
+        </activity>
+
+        <!-- Social OAuth redirect receiver -->
+        <activity
+            android:name=".social.auth.OAuthRedirectActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="localhost" android:pathPrefix="/oauth2callback" />
             </intent-filter>
         </activity>
 

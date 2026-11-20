@@ -28,6 +28,7 @@ fun DroidCraftNavHost(
     val navController = rememberNavController()
     val tabs = listOf(
         NavTab("jarvis", "Jarvis", Icons.Default.AutoAwesome),
+        NavTab("social", "Social", Icons.Default.Share),
         NavTab("pipeline", "Pipeline", Icons.Default.List),
         NavTab("assistant", "Assistant", Icons.Default.Face),
         NavTab("dubbing", "Dubbing", Icons.Default.PlayArrow)
@@ -61,6 +62,7 @@ fun DroidCraftNavHost(
             modifier = Modifier.padding(padding)
         ) {
             composable("jarvis") { JarvisScreen() }
+            composable("social") { com.droidcraft.app.social.ui.SocialHubScreen() }
             composable("pipeline") { PipelineScreen(viewModel) }
             composable("assistant") { AssistantScreen(viewModel, onTriggerVoiceInput) }
             composable("dubbing") { RedNoteDubbingScreen(videoUrl = "", onExportRequested = {}) }

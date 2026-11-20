@@ -97,6 +97,21 @@ object JarvisCommandParser {
             return JarvisIntent(JarvisIntentType.DEVICE_INFO)
         }
 
+        // ---------- Social / Buffer automation ----------
+        if (hasWord(text, "social dashboard", "social hub", "social kholo", "social khula", "buffer dashboard",
+                "posts dashboard", "posting dashboard", "social media dashboard", "publishing dashboard",
+                "social stats", "social queue", "scheduled posts", "kitne posts schedule", "kitne video schedule")) {
+            return JarvisIntent(JarvisIntentType.SOCIAL_DASHBOARD)
+        }
+        val schedMatch = Regex("\\b(?:schedule|publish|post|daalo|daal|lagao|upload)\\s+(?:kar\\s+do|kar\\s+dalo|kardo|karo|dalo)?\\s*(?:\\d+\\s+)?(?:videos?|reels?|shorts?|posts?)?\\b").find(text)
+        if (schedMatch != null && hasWord(text, "video", "videos", "reel", "reels", "short", "shorts", "post", "posts", "schedule", "publish")) {
+            val num = Regex("(\\d+)").find(text)?.groupValues?.get(1)
+            return JarvisIntent(
+                JarvisIntentType.POST_SCHEDULE,
+                mapOf("count" to (num ?: ""), "raw" to text)
+            )
+        }
+
         // ---------- App automation (WhatsApp / YouTube) ----------
         val waMatch = Regex("\\bwhatsapp\\s+(?:par\\s+)?(.+)$").find(text)
         if (waMatch != null) {
