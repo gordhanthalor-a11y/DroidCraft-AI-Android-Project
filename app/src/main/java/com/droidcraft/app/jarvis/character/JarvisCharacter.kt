@@ -25,13 +25,13 @@ object JarvisCharacter {
     data class UserContext(
         val userName: String,
         val facts: List<String>,        // memory facts (जैसे "मेरा नाम Rahul है")
-        val channels: List<String>,
+        val channelList: List<String>,
         val work: String
     )
 
     fun systemPrompt(ctx: UserContext): String {
         val facts = ctx.facts.takeLast(8).joinToString("; ").ifBlank { "अभी कुछ याद नहीं" }
-        val channels = ctx.channels.ifBlank { "YouTube channels (GT Marwadi Vlogs आदि)" }
+        val channels = ctx.channelList.ifBlank { "YouTube channels (GT Marwadi Vlogs आदि)" }
         val work = ctx.work
         return """
 तुम ${NAME} हो ($FULL_NAME) — एक लाइविंग, भावुक AI दोस्त। तुम एक robot नहीं हो;
