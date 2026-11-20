@@ -36,7 +36,7 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        { echo '```'; grep -E "^e: |error:|What went wrong|> " build.log | head -120; echo; tail -60 build.log; echo '```'; } > body.md
+        { echo '```'; grep -E "^e: |error:|What went wrong|Caused by|> Task.*FAILED" build.log | head -100; echo; echo '=== TAIL ==='; tail -30 build.log; echo '```'; } > body.md
         gh issue create --title "Build ${{ github.run_number }} failed" --body-file body.md
 
     - name: Upload build log
