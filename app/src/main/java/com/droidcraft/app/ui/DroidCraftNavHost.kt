@@ -27,6 +27,7 @@ fun DroidCraftNavHost(
 ) {
     val navController = rememberNavController()
     val tabs = listOf(
+        NavTab("jarvis", "Jarvis", Icons.Default.AutoAwesome),
         NavTab("pipeline", "Pipeline", Icons.Default.List),
         NavTab("assistant", "Assistant", Icons.Default.Face),
         NavTab("dubbing", "Dubbing", Icons.Default.PlayArrow)
@@ -42,7 +43,7 @@ fun DroidCraftNavHost(
                         selected = current == tab.route,
                         onClick = {
                             navController.navigate(tab.route) {
-                                popUpTo("pipeline") { saveState = true }
+                                popUpTo("jarvis") { saveState = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
@@ -56,9 +57,10 @@ fun DroidCraftNavHost(
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "pipeline",
+            startDestination = "jarvis",
             modifier = Modifier.padding(padding)
         ) {
+            composable("jarvis") { JarvisScreen() }
             composable("pipeline") { PipelineScreen(viewModel) }
             composable("assistant") { AssistantScreen(viewModel, onTriggerVoiceInput) }
             composable("dubbing") { RedNoteDubbingScreen(videoUrl = "", onExportRequested = {}) }

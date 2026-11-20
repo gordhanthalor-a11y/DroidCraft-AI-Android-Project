@@ -10,13 +10,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class GeminiClient(private val apiKey: String) {
+class GeminiClient(
+    private val apiKey: String,
+    private val systemPrompt: String = DEFAULT_SYSTEM_PROMPT
+) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .build()
 
-    private val systemPrompt = "Tum DroidCraft ke AI Creator Assistant ho, ek Hindi farming/agriculture YouTube creator (GT Marwadi Vlogs) ki madad karte ho: video ideas, scripts, titles, descriptions, tags, thumbnails ke ideas, Shorts hooks, SEO aur posting plan. User jis bhasha mein likhe (Hindi, Hinglish ya English) usi mein chhota, kaam ka jawab do."
+    companion object {
+        val DEFAULT_SYSTEM_PROMPT = "Tum DroidCraft ke AI Creator Assistant ho, ek Hindi farming/agriculture YouTube creator (GT Marwadi Vlogs) ki madad karte ho: video ideas, scripts, titles, descriptions, tags, thumbnails ke ideas, Shorts hooks, SEO aur posting plan. User jis bhasha mein likhe (Hindi, Hinglish ya English) usi mein chhota, kaam ka jawab do."
+    }
 
     /** history: list of (isUser, text) pairs, oldest first, including the latest user message. */
     suspend fun reply(history: List<Pair<Boolean, String>>): String = withContext(Dispatchers.IO) {

@@ -9,6 +9,10 @@
     
     <!-- AI Voice Input Permission -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Jarvis Flashlight (torch) ke liye -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
     
     <!-- Android 13+ Notification Alert Permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -17,6 +21,31 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Android 11+ package visibility: Jarvis ko installed apps, browser, dialer aur alarm dekhne ke liye -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".DroidCraftApp"
