@@ -1,0 +1,16 @@
+# Render.com blueprint — Jarvis Social + Creator Studio relay
+services:
+  - type: web
+    name: jarvis-social
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: SMALLEST_API_KEY
+        sync: false
+      - key: SMALLEST_TENANT
+        sync: false
+      - key: HEYGEN_API_KEY
+        sync: false

@@ -18,7 +18,6 @@ class Mp3Player(private val context: Context) {
     private var player: MediaPlayer? = null
     @Volatile
     var isPlaying: Boolean = false
-        private set
 
     fun play(file: File, onDone: () -> Unit = {}) {
         stop()

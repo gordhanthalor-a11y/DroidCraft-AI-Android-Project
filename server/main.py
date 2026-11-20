@@ -158,7 +158,7 @@ def sync_posts(posts: list[PostIn]):
              last_error, created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (p.id, p.video_path, p.video_url, p.title, p.description, p.hashtags,
+            (p.id, p.video_path or "", p.video_url, p.title, p.description, p.hashtags,
              p.platform, p.account_id, p.scheduled_at, p.status, p.external_id,
              None, p.retry_count, p.last_error, int(time.time())),
         )
@@ -182,18 +182,24 @@ def save_account(a: AccountIn):
 @app.get("/api/v1/dashboard")
 def dashboard():
     conn = db()
+
     def cnt(where):
         r = conn.execute(f"SELECT COUNT(*) c FROM posts WHERE {where}").fetchone()
         return r["c"]
+
+    scheduled = cnt("status='QUEUED'")
+    published = cnt("status='PUBLISHED'")
+    failed = cnt("status='FAILED'")
+    total = cnt("1=1")
     hist = conn.execute(
         "SELECT * FROM history ORDER BY attempt_at DESC LIMIT 50"
     ).fetchall()
     conn.close()
     return {
-        "scheduled": cnt("status='QUEUED'"),
-        "published": cnt("status='PUBLISHED'"),
-        "failed": cnt("status='FAILED'"),
-        "total": cnt("1=1"),
+        "scheduled": scheduled,
+        "published": published,
+        "failed": failed,
+        "total": total,
         "history": [dict(h) for h in hist],
     }
 

@@ -36,6 +36,7 @@ private val Dark = Color(0xFF0B1220)
  * B1 — Voice Studio: Hindi script → server TTS → MP3 (play/save/share)।
  * Sentence-by-sentence generation with gaps — Gowardhan की quality recipe।
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceStudioScreen() {
     val context = LocalContext.current

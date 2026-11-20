@@ -218,7 +218,7 @@ object VideoQc {
     /**
      * YouTube Data API से upload की गई वीडियो क्यों "Private" रह सकती है — और क्या करें।
      */
-    const val PRIVACY_NOTE = """
+    val PRIVACY_NOTE = """
 YouTube API से upload की गई वीडियो अक्सर **Private** ही रह जाती है। कारण:
 1. `status.privacyStatus` में "public" लिखा हो फिर भी, नया/अन-verified channel होने पर YouTube कुछ uploads को private रख देता है।
 2. Channel का **verification** न होना (phone verify) — तब तक कुछ features बंद रहते हैं।
