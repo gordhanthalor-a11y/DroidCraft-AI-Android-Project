@@ -2,5 +2,6 @@
 <paths>
     <files-path name="voice_studio" path="voice_studio/" />
     <files-path name="social_videos" path="social_videos/" />
+    <files-path name="thumbnails" path="thumbnails/" />
     <cache-path name="cache" path="/" />
 </paths>

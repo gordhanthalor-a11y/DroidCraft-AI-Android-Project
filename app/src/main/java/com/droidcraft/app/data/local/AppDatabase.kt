@@ -15,6 +15,12 @@ import com.droidcraft.app.social.data.PublishHistoryDao
 import com.droidcraft.app.social.data.PublishHistoryEntity
 import com.droidcraft.app.social.data.SocialAccountDao
 import com.droidcraft.app.social.data.SocialAccountEntity
+import com.droidcraft.app.studio.data.CampaignEntity
+import com.droidcraft.app.studio.data.CampaignDao
+import com.droidcraft.app.studio.data.HindiNoteDao
+import com.droidcraft.app.studio.data.HindiNoteEntity
+import com.droidcraft.app.studio.data.JobApplicationDao
+import com.droidcraft.app.studio.data.JobApplicationEntity
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "videos_table")
@@ -83,9 +89,12 @@ interface MemoryDao {
         SocialAccountEntity::class,
         PostQueueEntity::class,
         PostCaptionEntity::class,
-        PublishHistoryEntity::class
+        PublishHistoryEntity::class,
+        CampaignEntity::class,
+        JobApplicationEntity::class,
+        HindiNoteEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +104,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun postQueueDao(): PostQueueDao
     abstract fun postCaptionDao(): PostCaptionDao
     abstract fun publishHistoryDao(): PublishHistoryDao
+    abstract fun campaignDao(): CampaignDao
+    abstract fun jobApplicationDao(): JobApplicationDao
+    abstract fun hindiNoteDao(): HindiNoteDao
 
     companion object {
         @Volatile
@@ -171,6 +183,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `campaigns` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `ratePerThousand` REAL NOT NULL, " +
+                        "`deadline` TEXT NOT NULL, `clipsSubmitted` INTEGER NOT NULL, " +
+                        "`status` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `job_applications` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`company` TEXT NOT NULL, `role` TEXT NOT NULL, " +
+                        "`appliedOn` TEXT NOT NULL, `status` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `hindi_notes` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -178,7 +213,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "droidcraft_youtube_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }
