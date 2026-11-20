@@ -145,7 +145,7 @@ object YouTubePublisher {
     }
 
     private fun setThumbnail(token: String, videoId: String?, path: String) = runCatching {
-        if (videoId == null) return
+        if (videoId == null) return@runCatching
         val file = File(path)
         val url = "$API/thumbnails/set?videoId=$videoId&uploadType=media"
         val resp = client.newCall(
