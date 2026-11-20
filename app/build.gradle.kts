@@ -5,6 +5,23 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val fixedSigningStoreFile = System.getenv("ANDROID_SIGNING_KEYSTORE_FILE")
+val fixedSigningStorePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
+val fixedSigningKeyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
+val fixedSigningKeyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
+val fixedSigningConfigured = listOf(
+    fixedSigningStoreFile,
+    fixedSigningStorePassword,
+    fixedSigningKeyAlias,
+    fixedSigningKeyPassword
+).all { !it.isNullOrBlank() }
+
+if (System.getenv("CI") == "true" && !fixedSigningConfigured) {
+    throw GradleException(
+        "CI builds must use the fixed signing keystore. Configure the ANDROID_SIGNING_* GitHub Actions secrets."
+    )
+}
+
 android {
     namespace = "com.droidcraft.app"
     compileSdk = 35
@@ -19,13 +36,33 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (fixedSigningConfigured) {
+            create("fixed") {
+                storeFile = file(requireNotNull(fixedSigningStoreFile))
+                storePassword = requireNotNull(fixedSigningStorePassword)
+                keyAlias = requireNotNull(fixedSigningKeyAlias)
+                keyPassword = requireNotNull(fixedSigningKeyPassword)
+                storeType = "PKCS12"
+            }
+        }
+    }
+
     buildTypes {
-        release {
+        getByName("debug") {
+            if (fixedSigningConfigured) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
+        }
+        getByName("release") {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (fixedSigningConfigured) {
+                signingConfig = signingConfigs.getByName("fixed")
+            }
         }
     }
 
