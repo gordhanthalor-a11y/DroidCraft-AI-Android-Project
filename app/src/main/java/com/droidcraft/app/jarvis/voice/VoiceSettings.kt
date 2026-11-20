@@ -26,6 +26,25 @@ object VoiceSettings {
     const val DEFAULT_ELEVEN_VOICE = "7b9mYhmnp0y2qSH1FnBL"
     const val DEFAULT_ELEVEN_VOICE_NAME = "Bunty - Funny Best Friend"
 
+    /** एक आवाज़ — नाम + ElevenLabs voice ID। */
+    data class VoiceOption(val id: String, val name: String, val hint: String = "")
+
+    /**
+     * App में दिखने वाली आवाज़ें — उपयोगकर्ता नाम से चुन सकता है।
+     * नई आवाज़ चाहिए तो यहीं जोड़ो (id + नाम)।
+     */
+    val VOICES = listOf(
+        VoiceOption(DEFAULT_ELEVEN_VOICE, DEFAULT_ELEVEN_VOICE_NAME, "default • दोस्ताना"),
+        VoiceOption("mg9npuuaf8WJphS6E0Rt", "Baby", "आपकी पसंद"),
+        VoiceOption("21m00Tcm4TlvDq8ikWAM", "Rachel", "English"),
+        VoiceOption("EXAVITQu4vr4xnSDxMaL", "Bella", "English"),
+        VoiceOption("AZnzlk1XvdvUeBnXmlld", "Domi", "English")
+    )
+
+    /** चुनी आवाज़ का नाम (अगर सूची में हो)। */
+    fun voiceName(id: String): String =
+        VOICES.firstOrNull { it.id == id }?.name ?: "कस्टम आवाज़"
+
     private fun p(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

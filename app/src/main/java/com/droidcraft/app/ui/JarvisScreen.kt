@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +38,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -814,6 +816,7 @@ private fun VoiceSettingsDialog(onDismiss: () -> Unit) {
     var mode by remember { mutableStateOf(VoiceSettings.mode(context)) }
     var elevenKey by remember { mutableStateOf(VoiceSettings.elevenKey(context)) }
     var voiceId by remember { mutableStateOf(VoiceSettings.elevenVoiceId(context)) }
+    var customVoiceId by remember { mutableStateOf("") }
     var cloneId by remember { mutableStateOf(VoiceSettings.cloneVoiceId(context)) }
     var geminiVoice by remember { mutableStateOf(VoiceSettings.geminiVoice(context)) }
 
@@ -821,7 +824,10 @@ private fun VoiceSettingsDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Jarvis Voice Settings", color = Color.White) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.heightIn(max = 540.dp).verticalScroll(rememberScrollState())
+            ) {
                 Text("Voice Mode", color = JarvisColors.slateLight, fontSize = 12.sp)
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(
@@ -864,13 +870,41 @@ private fun VoiceSettingsDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Voice ID (default: Bunty - Funny Best Friend)", color = JarvisColors.slateLight, fontSize = 12.sp)
+                Text("आवाज़ चुनो", color = JarvisColors.slateLight, fontSize = 12.sp)
+                // नाम से आवाज़ें — चुनो और बस
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    VoiceSettings.VOICES.forEach { v ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            RadioButton(
+                                selected = voiceId == v.id,
+                                onClick = {
+                                    voiceId = v.id
+                                    VoiceSettings.setElevenVoiceId(context, v.id)
+                                }
+                            )
+                            Column {
+                                Text(v.name, color = Color.White, fontSize = 13.sp)
+                                if (v.hint.isNotBlank()) {
+                                    Text(v.hint, color = JarvisColors.slate, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text("या अपनी voice ID खुद डालो", color = JarvisColors.slateLight, fontSize = 12.sp)
                 OutlinedTextField(
-                    value = voiceId, onValueChange = {
-                        voiceId = it
-                        VoiceSettings.setElevenVoiceId(context, it)
+                    value = customVoiceId, onValueChange = {
+                        customVoiceId = it
+                        if (it.isNotBlank()) VoiceSettings.setElevenVoiceId(context, it)
                     },
-                    singleLine = true, placeholder = { Text("7b9mYhmnp0y2qSH1FnBL") },
+                    singleLine = true, placeholder = { Text("ElevenLabs voice ID...") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = JarvisColors.slateLight,

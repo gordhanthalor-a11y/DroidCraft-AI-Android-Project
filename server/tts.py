@@ -171,6 +171,7 @@ def voices(provider: str) -> list[dict]:
             return json.loads(raw)
         return [
             {"id": "7b9mYhmnp0y2qSH1FnBL", "name": "Bunty - Funny Best Friend"},
+            {"id": "mg9npuuaf8WJphS6E0Rt", "name": "Baby"},
             {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel (English)"},
             {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella (English)"},
             {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi (English)"},

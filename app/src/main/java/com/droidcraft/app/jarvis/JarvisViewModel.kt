@@ -350,7 +350,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         _voiceLabel.value = when (decision.provider) {
             VoiceRouter.Provider.PHONE -> "फ़ोन की आवाज़"
             VoiceRouter.Provider.GEMINI -> "Gemini ${VoiceSettings.geminiVoice(app)}"
-            VoiceRouter.Provider.ELEVENLABS -> "Bunty (ElevenLabs)"
+            VoiceRouter.Provider.ELEVENLABS -> "${VoiceSettings.voiceName(decision.voiceId)} (ElevenLabs)"
             VoiceRouter.Provider.SMALLEST -> "Smallest ${decision.voiceId.ifBlank { "clone" }}"
             VoiceRouter.Provider.HEYGEN -> "HeyGen"
         }
