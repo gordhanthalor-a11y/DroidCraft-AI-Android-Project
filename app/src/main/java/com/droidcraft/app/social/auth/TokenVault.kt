@@ -3,50 +3,59 @@ package com.droidcraft.app.social.auth
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.droidcraft.app.data.SecureKeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Token vault — tokens ko AES-256-GCM se encrypt karke SharedPreferences में रखता है.
- * Key Android Keystore में नहीं रख सकते (यों चाइन टूटेगी), इसलिए key को एक
- * ही secure random seed से derive करते हैं जो app के private storage में रहता है.
+ * Encrypts social tokens before they are stored in Room. The AES-GCM key seed is protected by
+ * EncryptedSharedPreferences and migrated from the earlier plain SharedPreferences seed.
  */
 object TokenVault {
 
     private const val TAG = "TokenVault"
     private const val PREFS = "jarvis_social_vault"
     private const val KEY_SEED = "vault_seed"
+    private const val SECURE_KEY_SEED = "oauth_token_vault_seed"
     private const val GCM_TAG_BITS = 128
     private const val IV_BYTES = 12
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 256-bit key derive करो (seed से). */
+    /** Derives a 256-bit token-vault key from an EncryptedSharedPreferences-backed seed. */
     private fun key(context: Context): SecretKeySpec {
-        val p = prefs(context)
-        var seed = p.getString(KEY_SEED, null)
-        if (seed == null) {
+        val legacyPreferences = prefs(context)
+        val secureStore = SecureKeyStore(context)
+        var seed = secureStore.read(SECURE_KEY_SEED)
+        if (seed.isNullOrBlank()) {
+            seed = legacyPreferences.getString(KEY_SEED, null)
+            if (!seed.isNullOrBlank()) {
+                secureStore.write(SECURE_KEY_SEED, seed)
+                legacyPreferences.edit().remove(KEY_SEED).commit()
+            }
+        }
+        if (seed.isNullOrBlank()) {
             val bytes = ByteArray(32)
             SecureRandom().nextBytes(bytes)
             seed = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-            p.edit().putString(KEY_SEED, seed).apply()
+            secureStore.write(SECURE_KEY_SEED, seed)
         }
         val raw = android.util.Base64.decode(seed, android.util.Base64.NO_WRAP)
         return SecretKeySpec(raw.copyOf(32), "AES")
     }
 
-    fun encrypt(context: Context, plain: String): String = runCatching {
+    fun encrypt(context: Context, plain: String): String = try {
         val iv = ByteArray(IV_BYTES).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(context), GCMParameterSpec(GCM_TAG_BITS, iv))
         val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
         android.util.Base64.encodeToString(iv + ct, android.util.Base64.NO_WRAP)
-    }.getOrElse {
-        Log.e(TAG, "encrypt fail", it)
-        plain // fallback: कम से कम app टूटे नहीं
+    } catch (error: Exception) {
+        Log.e(TAG, "encrypt fail", error)
+        throw IllegalStateException("Could not encrypt the social token.", error)
     }
 
     fun decrypt(context: Context, stored: String): String = runCatching {
@@ -63,5 +72,6 @@ object TokenVault {
 
     fun wipe(context: Context) {
         prefs(context).edit().clear().apply()
+        SecureKeyStore(context).remove(SECURE_KEY_SEED)
     }
 }

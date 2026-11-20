@@ -12,6 +12,7 @@ import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.data.SecureKeyStore
 import com.droidcraft.app.data.YouTubeApiService
 import com.droidcraft.app.data.local.AppDatabase
+import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +47,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
     // Migrate older locally saved Gemini keys to encrypted storage without showing the key again.
     private var geminiApiKey: String = GeminiApiKeyStore.read(application)
-    private var elevenLabsApiKey: String = secureKeyStore.read(SECURE_ELEVENLABS_KEY).orEmpty()
+    private var elevenLabsApiKey: String = VoiceSettings.elevenKey(application)
 
     private val _hasGeminiKey = MutableStateFlow(geminiApiKey.isNotBlank())
     val hasGeminiKey: StateFlow<Boolean> = _hasGeminiKey.asStateFlow()

@@ -9,6 +9,7 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.util.Base64
 import android.util.Log
+import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.model.LiveConversationStatus
 import com.droidcraft.app.model.LiveVoiceMode
 import kotlinx.coroutines.CancellationException
@@ -62,7 +63,10 @@ internal class GeminiLiveVoiceSession(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
     private val audioPlayer = PcmAudioPlayer()
-    private val elevenLabsTtsClient = ElevenLabsTtsClient(elevenLabsApiKey)
+    private val elevenLabsTtsClient = ElevenLabsTtsClient(
+        elevenLabsApiKey,
+        VoiceSettings.elevenVoiceId(appContext)
+    )
     private val responseScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val synthesisMutex = Mutex()
 

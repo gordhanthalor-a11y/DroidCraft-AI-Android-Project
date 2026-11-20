@@ -108,13 +108,16 @@ object StudioSettings {
 
     private fun readProviderKey(context: Context, secureName: String, legacyName: String): String {
         val store = SecureKeyStore(context)
+        val preferences = prefs(context)
         val saved = store.read(secureName)
-        if (!saved.isNullOrBlank()) return saved
-
-        val legacy = prefs(context).getString(legacyName, "").orEmpty()
+        val legacy = preferences.getString(legacyName, "").orEmpty()
+        if (!saved.isNullOrBlank()) {
+            if (legacy.isNotBlank()) preferences.edit().remove(legacyName).apply()
+            return saved
+        }
         if (legacy.isBlank()) return ""
         store.write(secureName, legacy)
-        prefs(context).edit().remove(legacyName).apply()
+        preferences.edit().remove(legacyName).apply()
         return legacy
     }
 

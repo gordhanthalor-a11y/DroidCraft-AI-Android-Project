@@ -10,7 +10,10 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** Synthesizes Jarvis replies in the user's selected ElevenLabs voice. */
-class ElevenLabsTtsClient(private val apiKey: String) {
+class ElevenLabsTtsClient(
+    private val apiKey: String,
+    private val voiceId: String
+) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
@@ -20,6 +23,10 @@ class ElevenLabsTtsClient(private val apiKey: String) {
     suspend fun synthesizePcm(text: String): ByteArray = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) { "Add an ElevenLabs API key in Settings." }
         require(text.isNotBlank()) { "There is no reply text to speak." }
+        val selectedVoiceId = voiceId.trim()
+        require(VOICE_ID_PATTERN.matches(selectedVoiceId)) {
+            "Enter a valid ElevenLabs voice ID in Settings."
+        }
 
         val body = JSONObject()
             .put("text", text)
@@ -36,7 +43,7 @@ class ElevenLabsTtsClient(private val apiKey: String) {
             .toRequestBody("application/json; charset=utf-8".toMediaType())
 
         val request = Request.Builder()
-            .url("https://api.elevenlabs.io/v1/text-to-speech/$BUNTY_VOICE_ID?output_format=pcm_24000")
+            .url("https://api.elevenlabs.io/v1/text-to-speech/$selectedVoiceId?output_format=pcm_24000")
             .header("xi-api-key", apiKey)
             .header("Accept", "audio/pcm")
             .post(body)
@@ -64,8 +71,8 @@ class ElevenLabsTtsClient(private val apiKey: String) {
     }
 
     companion object {
-        const val BUNTY_VOICE_ID = "7b9mYhmnp0y2qSH1FnBL"
         private const val MODEL_ID = "eleven_multilingual_v2"
+        private val VOICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,80}")
     }
 }
 

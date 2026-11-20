@@ -23,6 +23,7 @@ enum class VoiceMode {
 object VoiceSettings {
     private const val PREFS = "jarvis_voice"
     private const val ELEVENLABS_KEY = "elevenlabs_api_key"
+    private val ELEVEN_VOICE_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,80}")
 
     /** आपकी चुनी आवाज़ — Bunty (Funny Best Friend), default। */
     const val DEFAULT_ELEVEN_VOICE = "7b9mYhmnp0y2qSH1FnBL"
@@ -61,10 +62,17 @@ object VoiceSettings {
 
     /** ElevenLabs voice ID (आपकी चुनी Bunty)। */
     fun elevenVoiceId(context: Context): String =
-        p(context).getString("eleven_voice_id", DEFAULT_ELEVEN_VOICE) ?: DEFAULT_ELEVEN_VOICE
+        p(context).getString("eleven_voice_id", DEFAULT_ELEVEN_VOICE)
+            ?.trim()
+            ?.takeIf(ELEVEN_VOICE_ID_PATTERN::matches)
+            ?: DEFAULT_ELEVEN_VOICE
 
     fun setElevenVoiceId(context: Context, id: String) {
-        p(context).edit().putString("eleven_voice_id", id.trim()).apply()
+        val cleaned = id.trim()
+        require(ELEVEN_VOICE_ID_PATTERN.matches(cleaned)) {
+            "Enter a valid ElevenLabs voice ID using letters, numbers, underscores, or hyphens."
+        }
+        p(context).edit().putString("eleven_voice_id", cleaned).apply()
     }
 
     /** आपकी खुद की clone voice (Smallest) — permanent choice। */
@@ -78,11 +86,15 @@ object VoiceSettings {
     /** ElevenLabs API key — shared Android Keystore storage, with one-time legacy migration. */
     fun elevenKey(context: Context): String {
         val secureStore = SecureKeyStore(context)
-        val saved = secureStore.read(ELEVENLABS_KEY).orEmpty()
-        if (saved.isNotBlank()) return saved
-
         val legacyPrefs = p(context)
-        val legacy = TokenVault.decrypt(context, legacyPrefs.getString("eleven_key", "") ?: "")
+        val legacyValue = legacyPrefs.getString("eleven_key", "").orEmpty()
+        val saved = secureStore.read(ELEVENLABS_KEY).orEmpty()
+        if (saved.isNotBlank()) {
+            if (legacyValue.isNotBlank()) legacyPrefs.edit().remove("eleven_key").apply()
+            return saved
+        }
+
+        val legacy = TokenVault.decrypt(context, legacyValue)
         if (legacy.isNotBlank()) {
             secureStore.write(ELEVENLABS_KEY, legacy)
             legacyPrefs.edit().remove("eleven_key").apply()

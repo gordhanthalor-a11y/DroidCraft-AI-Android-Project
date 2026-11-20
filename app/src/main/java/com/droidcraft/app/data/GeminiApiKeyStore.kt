@@ -14,11 +14,13 @@ object GeminiApiKeyStore {
         val saved = secureStore.read(SECURE_KEY)
         val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
         val legacy = preferences.getString(LEGACY_KEY, "").orEmpty()
-        if (legacy.isNotBlank()) preferences.edit().remove(LEGACY_KEY).apply()
-
-        if (!saved.isNullOrBlank()) return saved
+        if (!saved.isNullOrBlank()) {
+            if (legacy.isNotBlank()) preferences.edit().remove(LEGACY_KEY).apply()
+            return saved
+        }
         if (legacy.isBlank()) return ""
         secureStore.write(SECURE_KEY, legacy)
+        preferences.edit().remove(LEGACY_KEY).apply()
         return legacy
     }
 

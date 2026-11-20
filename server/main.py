@@ -215,7 +215,7 @@ def dub_file(job_id: str):
 class ClipIn(BaseModel):
     url: str
     clip_sec: int = 60
-    layout: str = "vertical"
+    layout: str = "facecam_top_gameplay_bottom"
     credit: str = "@GTMarwadiVlogs"
     parts: int = 1
 

@@ -1,5 +1,6 @@
 package com.droidcraft.app.studio.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,19 @@ private val Light = Color(0xFFE7F5F8)
 private val Green = Color(0xFF48E1C2)
 private val Red = Color(0xFFFF7183)
 
+private enum class ClipperLayout(val apiValue: String, val title: String, val detail: String) {
+    FACECAM_TOP_GAMEPLAY_BOTTOM(
+        apiValue = "facecam_top_gameplay_bottom",
+        title = "Facecam on top · gameplay below",
+        detail = "For a side-by-side source with facecam on the left and gameplay on the right."
+    ),
+    VERTICAL_CROP(
+        apiValue = "vertical",
+        title = "Vertical center crop",
+        detail = "Crop the middle of one source into a 9:16 clip."
+    )
+}
+
 /**
  * B4 — Clipper: source link → server crops 9:16 vertical clips and overlays the creator credit.
  * Long streams can be processed in several evenly spaced parts.
@@ -37,6 +51,7 @@ fun ClipperScreen() {
 
     var url by remember { mutableStateOf("") }
     var clipSec by remember { mutableIntStateOf(60) }
+    var selectedLayout by remember { mutableStateOf(ClipperLayout.FACECAM_TOP_GAMEPLAY_BOTTOM) }
     var parts by remember { mutableIntStateOf(1) }
     var credit by remember { mutableStateOf("@GTMarwadiVlogs") }
     var busy by remember { mutableStateOf(false) }
@@ -52,7 +67,32 @@ fun ClipperScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Clip Kaato", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Cyan)
-        Text("Source link दो → 9:16 vertical crop और original creator credit overlay बनेगा", fontSize = 12.sp, color = Slate)
+        Text("Source link दो → 9:16 vertical clip और original creator credit overlay बनेगा", fontSize = 12.sp, color = Slate)
+
+        Text("Clip layout", fontSize = 13.sp, color = Light, fontWeight = FontWeight.SemiBold)
+        ClipperLayout.values().forEach { option ->
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { selectedLayout = option },
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (selectedLayout == option) Color(0xFF163246) else Color(0xFF0E2030)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedLayout == option,
+                        onClick = { selectedLayout = option }
+                    )
+                    Column(Modifier.padding(start = 6.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+                        Text(option.title, fontSize = 13.sp, color = Light, fontWeight = FontWeight.SemiBold)
+                        Text(option.detail, fontSize = 11.sp, color = Slate)
+                    }
+                }
+            }
+        }
 
         OutlinedTextField(
             value = url, onValueChange = { url = it },
@@ -88,7 +128,7 @@ fun ClipperScreen() {
                 busy = true; status = "Server download + cutting शुरू…"
                 scope.launch {
                     runCatching {
-                        val job = client.clipStart(url.trim(), clipSec, "vertical", credit, parts)
+                        val job = client.clipStart(url.trim(), clipSec, selectedLayout.apiValue, credit, parts)
                         val done = client.clipWait(job.id)
                         clipList = done.clips
                         progress = 100

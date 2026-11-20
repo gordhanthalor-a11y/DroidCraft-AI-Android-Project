@@ -30,9 +30,13 @@ def save_job(job: dict):
     _job_path(job["id"]).write_text(json.dumps(job, ensure_ascii=False))
 
 
-def cut(job_id: str, url: str, clip_sec: int = 60, layout: str = "vertical",
+def cut(job_id: str, url: str, clip_sec: int = 60,
+        layout: str = "facecam_top_gameplay_bottom",
         credit_handle: str = "@GTMarwadiVlogs", parts: int = 1):
-    job = {"id": job_id, "url": url, "status": "downloading", "progress": 5,
+    supported_layouts = {"facecam_top_gameplay_bottom", "vertical"}
+    if layout not in supported_layouts:
+        raise ValueError(f"Unsupported clip layout: {layout}")
+    job = {"id": job_id, "url": url, "layout": layout, "status": "downloading", "progress": 5,
            "clips": [], "error": None}
     save_job(job)
 
@@ -68,17 +72,35 @@ def cut(job_id: str, url: str, clip_sec: int = 60, layout: str = "vertical",
             for i in range(max(1, parts)):
                 start = i * seg
                 out = CLIPS_DIR / f"{job_id}_{i}.mp4"
-                # The source is reframed to vertical; add the required original-creator credit.
-                vf = (
-                    "scale=1080:1920:force_original_aspect_ratio=increase,"
-                    "crop=1080:1920,setsar=1,"
-                    f"drawtext=textfile={credit_file}:fontcolor=white:fontsize=42:"
-                    "borderw=3:bordercolor=black:box=1:boxcolor=black@0.60:"
-                    "boxborderw=12:x=(w-text_w)/2:y=h-text_h-96"
-                )
-                cmd = ["ffmpeg", "-y", "-ss", str(start), "-t", str(clip_sec),
-                       "-i", str(src), "-vf", vf, "-c:v", "libx264", "-preset", "fast",
-                       "-crf", "20", "-c:a", "aac", "-b:a", "128k", str(out)]
+                # The default layout reframes side-by-side streams: left facecam above right gameplay.
+                if layout == "facecam_top_gameplay_bottom":
+                    filter_graph = (
+                        "[0:v]split=2[facecam_src][gameplay_src];"
+                        "[facecam_src]crop=trunc(iw/4)*2:ih:0:0,"
+                        "scale=1080:600:force_original_aspect_ratio=increase,crop=1080:600,setsar=1[facecam];"
+                        "[gameplay_src]crop=trunc(iw/4)*2:ih:trunc(iw/4)*2:0,"
+                        "scale=1080:1320:force_original_aspect_ratio=increase,crop=1080:1320,setsar=1[gameplay];"
+                        "[facecam][gameplay]vstack=inputs=2,setsar=1[stacked];"
+                        f"[stacked]drawtext=textfile='{credit_file.as_posix()}':fontcolor=white:fontsize=42:"
+                        "borderw=3:bordercolor=black:box=1:boxcolor=black@0.60:"
+                        "boxborderw=12:x=(w-text_w)/2:y=h-text_h-96[clipout]"
+                    )
+                    cmd = ["ffmpeg", "-y", "-ss", str(start), "-t", str(clip_sec),
+                           "-i", str(src), "-filter_complex", filter_graph,
+                           "-map", "[clipout]", "-map", "0:a?"]
+                else:
+                    # Preserve the earlier center-cropped vertical preset.
+                    vf = (
+                        "scale=1080:1920:force_original_aspect_ratio=increase,"
+                        "crop=1080:1920,setsar=1,"
+                        f"drawtext=textfile={credit_file}:fontcolor=white:fontsize=42:"
+                        "borderw=3:bordercolor=black:box=1:boxcolor=black@0.60:"
+                        "boxborderw=12:x=(w-text_w)/2:y=h-text_h-96"
+                    )
+                    cmd = ["ffmpeg", "-y", "-ss", str(start), "-t", str(clip_sec),
+                           "-i", str(src), "-vf", vf]
+                cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                        "-c:a", "aac", "-b:a", "128k", str(out)]
                 rr = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
                 if rr.returncode == 0 and out.exists():
                     out_clips.append({

@@ -3,6 +3,7 @@ package com.droidcraft.app.social.auth
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.droidcraft.app.data.SecureKeyStore
 import com.droidcraft.app.data.local.AppDatabase
 import com.droidcraft.app.social.data.SocialAccountEntity
 import com.droidcraft.app.social.data.SocialPlatform
@@ -208,9 +209,13 @@ object OAuthManager {
     }
 }
 
-/** User के द्वारा डाले गए OAuth credentials (SharedPreferences). */
+/** OAuth client credentials use the same EncryptedSharedPreferences-backed vault as API keys. */
 object SocialCredentials {
     private const val PREFS = "jarvis_social_creds"
+    private const val GOOGLE_CLIENT_ID = "oauth_google_client_id"
+    private const val GOOGLE_CLIENT_SECRET = "oauth_google_client_secret"
+    private const val META_CLIENT_ID = "oauth_meta_client_id"
+    private const val META_CLIENT_SECRET = "oauth_meta_client_secret"
 
     data class Creds(
         val googleClientId: String,
@@ -223,21 +228,45 @@ object SocialCredentials {
     }
 
     fun save(context: Context, creds: Creds) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("googleClientId", creds.googleClientId)
-            .putString("googleClientSecret", creds.googleClientSecret)
-            .putString("metaClientId", creds.metaClientId)
-            .putString("metaClientSecret", creds.metaClientSecret)
-            .apply()
+        val secureStore = SecureKeyStore(context)
+        secureStore.write(GOOGLE_CLIENT_ID, creds.googleClientId)
+        secureStore.write(GOOGLE_CLIENT_SECRET, creds.googleClientSecret)
+        secureStore.write(META_CLIENT_ID, creds.metaClientId)
+        secureStore.write(META_CLIENT_SECRET, creds.metaClientSecret)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
     }
 
     fun get(context: Context): Creds {
-        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return Creds(
-            googleClientId = p.getString("googleClientId", "").orEmpty(),
-            googleClientSecret = p.getString("googleClientSecret", "").orEmpty(),
-            metaClientId = p.getString("metaClientId", "").orEmpty(),
-            metaClientSecret = p.getString("metaClientSecret", "").orEmpty()
-        )
+        val legacy = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val secureStore = SecureKeyStore(context)
+        val googleClientId = readOrMigrate(secureStore, legacy, GOOGLE_CLIENT_ID, "googleClientId")
+        val googleClientSecret = readOrMigrate(secureStore, legacy, GOOGLE_CLIENT_SECRET, "googleClientSecret")
+        val metaClientId = readOrMigrate(secureStore, legacy, META_CLIENT_ID, "metaClientId")
+        val metaClientSecret = readOrMigrate(secureStore, legacy, META_CLIENT_SECRET, "metaClientSecret")
+
+        val migrationComplete = listOf(
+            "googleClientId" to googleClientId,
+            "googleClientSecret" to googleClientSecret,
+            "metaClientId" to metaClientId,
+            "metaClientSecret" to metaClientSecret
+        ).all { (legacyName, secureValue) ->
+            legacy.getString(legacyName, "").isNullOrBlank() || secureValue.isNotBlank()
+        }
+        if (migrationComplete && legacy.all.isNotEmpty()) legacy.edit().clear().commit()
+
+        return Creds(googleClientId, googleClientSecret, metaClientId, metaClientSecret)
+    }
+
+    private fun readOrMigrate(
+        secureStore: SecureKeyStore,
+        legacy: android.content.SharedPreferences,
+        secureName: String,
+        legacyName: String
+    ): String {
+        secureStore.read(secureName)?.takeIf { it.isNotBlank() }?.let { return it }
+        val oldValue = legacy.getString(legacyName, "").orEmpty()
+        if (oldValue.isBlank()) return ""
+        secureStore.write(secureName, oldValue)
+        return secureStore.read(secureName).orEmpty()
     }
 }

@@ -1,5 +1,9 @@
 package com.droidcraft.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +57,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
+import com.droidcraft.app.jarvis.JarvisViewModel
+import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.model.LiveVoiceMode
 import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
@@ -62,6 +71,8 @@ fun SettingsScreen(
     onOpenLiveTalk: () -> Unit
 ) {
     val context = LocalContext.current
+    val jarvisViewModel: JarvisViewModel = composeViewModel()
+    val handsFree by jarvisViewModel.handsFree.collectAsState()
     val selectedVoice by viewModel.liveVoiceMode.collectAsState()
     val hasGeminiKey by viewModel.hasGeminiKey.collectAsState()
     val hasElevenLabsKey by viewModel.hasElevenLabsKey.collectAsState()
@@ -76,6 +87,20 @@ fun SettingsScreen(
     var studioServerUrl by remember { mutableStateOf(StudioSettings.serverUrl(context)) }
     var studioServerMessage by remember { mutableStateOf("") }
     var studioServerSaved by remember { mutableStateOf(false) }
+    var wakeListenerMessage by remember { mutableStateOf("") }
+    var elevenVoiceId by remember { mutableStateOf(VoiceSettings.elevenVoiceId(context)) }
+    var elevenVoiceIdMessage by remember { mutableStateOf("") }
+    val microphonePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            jarvisViewModel.setHandsFree(true)
+            wakeListenerMessage = "Offline wake listening is starting. First use downloads the small models once."
+        } else {
+            jarvisViewModel.setHandsFree(false)
+            wakeListenerMessage = "Allow microphone access before enabling offline wake listening."
+        }
+    }
 
     LaunchedEffect(modelOrder) {
         modelOrderText = modelOrder.joinToString(System.lineSeparator())
@@ -105,6 +130,58 @@ fun SettingsScreen(
             pingMs = pingMs,
             onTest = viewModel::testGeminiConnection
         )
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsGroupHeader(
+                    icon = Icons.Default.Mic,
+                    title = "Offline wake phrase",
+                    subtitle = "Vosk listens locally for ‘Hey Jarvis’ in Hindi and English."
+                )
+                Text(
+                    "The first start downloads the compact Hindi and Indian English models once (about 82 MB). Wake-word recognition then runs on-device; only the wake phrase is checked.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (handsFree) "Wake listener enabled" else "Wake listener off",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (handsFree) "An ongoing notification shows when it is listening." else "Allow microphone access to turn it on.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = handsFree,
+                        onCheckedChange = { enabled ->
+                            if (!enabled) {
+                                jarvisViewModel.setHandsFree(false)
+                                wakeListenerMessage = "Offline wake listening stopped."
+                            } else if (ContextCompat.checkSelfPermission(
+                                    context, Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                jarvisViewModel.setHandsFree(true)
+                                wakeListenerMessage = "Offline wake listening is starting. First use downloads the small models once."
+                            } else {
+                                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    )
+                }
+                if (wakeListenerMessage.isNotBlank()) {
+                    Text(wakeListenerMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
 
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -142,7 +219,7 @@ fun SettingsScreen(
                                 )
                                 if (mode == LiveVoiceMode.ELEVENLABS) {
                                     Text(
-                                        "Bunty · expressive voice · Gemini remains the fallback",
+                                        "${VoiceSettings.voiceName(elevenVoiceId)} · selected voice · Gemini remains the fallback",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -152,11 +229,43 @@ fun SettingsScreen(
                     }
                 }
                 Text(
-                    "Gemini Live handles listening and replies. With ElevenLabs selected, reply text is sent to ElevenLabs to speak in Bunty's expressive voice. " +
+                    "Gemini Live handles listening and replies. With ElevenLabs selected, reply text is spoken using the voice ID saved below. " +
                         "If ElevenLabs credits or service run out, Jarvis switches to Gemini's free preset voice in the same conversation.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                OutlinedTextField(
+                    value = elevenVoiceId,
+                    onValueChange = { elevenVoiceId = it },
+                    label = { Text("ElevenLabs voice ID") },
+                    placeholder = { Text(VoiceSettings.DEFAULT_ELEVEN_VOICE) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Default: Bunty. Your saved ID is used by the next Live Talk session.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = {
+                        runCatching { VoiceSettings.setElevenVoiceId(context, elevenVoiceId) }
+                            .onSuccess {
+                                elevenVoiceId = VoiceSettings.elevenVoiceId(context)
+                                elevenVoiceIdMessage = "ElevenLabs voice ID saved."
+                            }
+                            .onFailure { error ->
+                                elevenVoiceIdMessage = error.message ?: "Could not save this voice ID."
+                            }
+                    },
+                    enabled = elevenVoiceId.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Save voice ID")
+                }
+                if (elevenVoiceIdMessage.isNotBlank()) {
+                    Text(elevenVoiceIdMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
                 OutlinedButton(onClick = onOpenLiveTalk, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Mic, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
