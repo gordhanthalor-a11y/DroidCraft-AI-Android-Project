@@ -70,10 +70,12 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.NOTE_LIST -> listNotes()
             JarvisIntentType.SCREEN_DUMP -> screenDump(intent.args["query"].orEmpty())
             JarvisIntentType.TAP -> tapOn(intent.args["target"].orEmpty())
-            JarvisIntentType.AUTOMATE -> AppAutomation.run(
-                context,
-                intent.args["target"].orEmpty(),
-                intent.args["query"].orEmpty()
+            JarvisIntentType.AUTOMATE -> JarvisOutcome(
+                AppAutomation.run(
+                    context,
+                    intent.args["target"].orEmpty(),
+                    intent.args["query"].orEmpty()
+                )
             )
             JarvisIntentType.MEMORY_ADD -> remember(intent.args["text"].orEmpty())
             JarvisIntentType.MEMORY_LIST -> recall(intent.args["query"].orEmpty())

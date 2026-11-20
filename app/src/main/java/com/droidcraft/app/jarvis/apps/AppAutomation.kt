@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import android.view.accessibilitynode.AccessibilityNodeInfo
 import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
 
 /**
@@ -20,11 +19,14 @@ object AppAutomation {
         val service = JarvisAccessibilityService.instance
             ?: return "Pehle accessibility ON karo (header ka 🧩 icon)."
 
+        fun JarvisAccessibilityService.tapTextSafe(target: String): Boolean =
+            runCatching { tapText(target) }.getOrDefault(false)
+
         val what = query.trim().lowercase()
         val pkg = resolvePackage(what) ?: resolvePackage(target.lowercase())
         if (pkg == null) {
             // Unknown app — generic tap on text
-            val ok = JarvisAccessibilityService.tapText(service, target, exact = false)
+            val ok = service.tapTextSafe(target
             return if (ok) "'$target' par tap kar diya." else "'$target' screen par nahi mila."
         }
 
@@ -45,6 +47,9 @@ object AppAutomation {
         return if (ok) "'$target' par tap kar diya." else "'$target' screen par nahi mila."
     }
 
+    /** Automation shuru hone par ek warm-up (app khulte hi UI settle hone mein time lagta hai). */
+    fun settle(ms: Long = 700) = Thread.sleep(ms)
+
     // ---------------------------------------------------------------- WhatsApp
 
     private fun runWhatsApp(context: Context, service: JarvisAccessibilityService, what: String, target: String): String {
@@ -54,19 +59,19 @@ object AppAutomation {
         val contact = target.ifBlank { what }
         when {
             what.contains("call") -> {
-                val ok = JarvisAccessibilityService.tapText(service, "Call", exact = false)
+                val ok = service.tapTextSafe("Call"
                 return if (ok) "WhatsApp par $contact ko call lag raha hai." else "WhatsApp call screen nahi mila."
             }
             what.contains("message") || what.contains("msg") || what.contains("bhejo") || what.contains("bhej") -> {
                 // Search box → contact → message box → send
-                var ok = JarvisAccessibilityService.tapText(service, "Search", exact = false)
-                if (!ok) ok = JarvisAccessibilityService.tapText(service, "search", exact = false)
+                var ok = service.tapTextSafe("Search"
+                if (!ok) ok = service.tapTextSafe("search"
                 if (!ok) return "WhatsApp search nahi mila — accessibility ON hai na?"
                 service.sendKeys(contact)
-                Thread.sleep(700)
-                JarvisAccessibilityService.tapText(service, contact, exact = false)
-                Thread.sleep(700)
-                val sent = JarvisAccessibilityService.tapText(service, "Send", exact = false)
+                settle(700)
+                service.tapTextSafe(contact
+                settle(700)
+                val sent = service.tapTextSafe("Send"
                 return if (sent) "WhatsApp par $contact ke liye message screen khul gaya." else "$contact chat nahi khuli."
             }
             else -> return "WhatsApp khula. Ab 'whatsapp call mummy' ya 'whatsapp message rahul' boliye."
@@ -81,20 +86,20 @@ object AppAutomation {
         }
         when {
             what.contains("subscribe") || what.contains("subscribe") -> {
-                val ok = JarvisAccessibilityService.tapText(service, "Subscribe", exact = false)
+                val ok = service.tapTextSafe("Subscribe"
                 return if (ok) "Subscribe kar diya." else "Subscribe button nahi mila."
             }
             what.contains("full screen") || what.contains("fullscreen") || what.contains("poora screen") -> {
-                val ok = JarvisAccessibilityService.tapText(service, "Full screen", exact = false)
+                val ok = service.tapTextSafe("Full screen"
                 return if (ok) "Full screen kar diya." else "Video screen nahi mila."
             }
             what.contains("play") -> {
-                val ok = JarvisAccessibilityService.tapText(service, "Play", exact = false)
+                val ok = service.tapTextSafe("Play"
                 return if (ok) "Play kar diya." else "Play button nahi mila."
             }
             else -> {
-                var ok = JarvisAccessibilityService.tapText(service, "Search", exact = false)
-                if (!ok) ok = JarvisAccessibilityService.tapText(service, "search", exact = false)
+                var ok = service.tapTextSafe("Search"
+                if (!ok) ok = service.tapTextSafe("search"
                 if (ok) {
                     service.sendKeys(target)
                     return "YouTube par '$target' search kar raha hoon."
