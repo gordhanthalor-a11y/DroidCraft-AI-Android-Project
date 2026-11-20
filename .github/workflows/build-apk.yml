@@ -32,7 +32,30 @@ jobs:
           >/dev/null
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug 2>&1 | tee build.log
+
+      - name: Annotate Gradle compiler errors
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -f build.log ]]; then
+            grep -E '^e: |^.*error:|^FAILURE:|^\* What went wrong:' build.log | tail -n 80 | while IFS= read -r message; do
+              echo "::error::$message"
+            done
+          fi
+
+      - name: Upload Gradle build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DroidCraft-build-log
+          path: build.log
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
 
       - name: Verify APK signature and record SHA-256
         id: verify_apk
