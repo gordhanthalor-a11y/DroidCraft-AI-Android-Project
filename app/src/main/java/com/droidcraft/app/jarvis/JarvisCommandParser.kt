@@ -15,12 +15,6 @@ object JarvisCommandParser {
         "good night", "pranam", "aadab", "hii", "helo"
     )
 
-    private val GREETINGS = listOf(
-        "hello", "hi", "hey", "namaste", "namaskar", "salaam", "salam",
-        "ram ram", "radhe radhe", "good morning", "good afternoon", "good evening",
-        "good night", "pranam", "aadab", "hii", "helo"
-    )
-
     fun parse(raw: String): JarvisIntent? {
         val text = normalize(raw)
         if (text.isBlank()) return null
@@ -164,7 +158,10 @@ object JarvisCommandParser {
     // ---------------------------------------------------------------------
 
     fun normalize(raw: String): String =
-        raw.trim().lowercase().replace(Regex("[?!.,;\"']+"), "").replace(Regex("\\s+"), " ")
+        raw.trim().lowercase().replace(Regex("[?!,;\"']+"), "").replace(Regex("\\s+"), " ")
+
+    private fun isGreeting(text: String): Boolean =
+        GREETINGS.any { Regex("^${Regex.escape(it)}\\b").containsMatchIn(text) }
 
     private fun hasWord(text: String, vararg words: String): Boolean =
         words.any { Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(text) }
