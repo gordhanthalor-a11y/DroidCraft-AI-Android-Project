@@ -57,7 +57,8 @@ class TtsClient(private val context: Context) {
         speed: Float,
         sentenceMode: Boolean,
         style: Float = 0.35f,
-        stability: Float = 0.5f
+        stability: Float = 0.5f,
+        elevenKey: String = ""
     ): ByteArray = withContext(Dispatchers.IO) {
         val url = "${StudioSettings.serverUrl(context)}/api/v1/tts"
         val body = JSONObject().apply {
@@ -72,10 +73,15 @@ class TtsClient(private val context: Context) {
 
         val builder = Request.Builder().url(url).post(body)
         // keys server पर भेजने के लिए headers (server env override के बाद यह भी पढ़ेगा)
-        val key = if (provider == "smallest") StudioSettings.smallestKey(context)
-        else StudioSettings.heygenKey(context)
+        val key = when (provider) {
+            "smallest" -> StudioSettings.smallestKey(context)
+            "heygen" -> StudioSettings.heygenKey(context)
+            "elevenlabs" -> elevenKey
+            else -> ""
+        }
         if (key.isNotBlank()) {
             builder.addHeader("X-Provider-Key", key)
+            if (provider == "elevenlabs") builder.addHeader("X-ElevenLabs-Key", key)
         }
         val resp = client.newCall(builder.build()).execute()
         if (!resp.isSuccessful) {

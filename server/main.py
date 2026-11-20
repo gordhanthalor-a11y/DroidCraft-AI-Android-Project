@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse, Response, FileResponse
 from pydantic import BaseModel
 
@@ -121,11 +121,13 @@ class TtsRequest(BaseModel):
 
 
 @app.post("/api/v1/tts")
-def tts(req: TtsRequest):
-    """Hindi script → MP3 bytes (Smallest AI / HeyGen / ElevenLabs)।"""
+def tts(req: TtsRequest, request: Request):
+    """Hindi script → MP3 bytes (Smallest AI / HeyGen / ElevenLabs)।
+    Key header से भी आ सकती है (app Settings से) — server env से override होती है।"""
     try:
+        key = request.headers.get("X-ElevenLabs-Key") or ""
         data = synthesize(req.text, req.provider, req.voice, req.speed, req.sentence_mode,
-                          req.style, req.stability)
+                          req.style, req.stability, eleven_key=key)
         return Response(content=data, media_type="audio/mpeg")
     except TtsError as e:
         raise HTTPException(status_code=400, detail=str(e))

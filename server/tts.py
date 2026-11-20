@@ -84,9 +84,10 @@ def _heygen(text: str, voice: str, speed: float, sentence_mode: bool) -> bytes:
 
 
 def _elevenlabs(text: str, voice: str, speed: float, sentence_mode: bool,
-                style: float = 0.35, stability: float = 0.5) -> bytes:
+                style: float = 0.35, stability: float = 0.5,
+                eleven_key: str = "") -> bytes:
     """ElevenLabs TTS — emotion style के साथ (Bunty - Funny Best Friend default)।"""
-    api_key = os.getenv("ELEVENLABS_API_KEY", "")
+    api_key = eleven_key.strip() or os.getenv("ELEVENLABS_API_KEY", "")
     if not api_key:
         raise TtsError("ElevenLabs key server पर set नहीं है (ELEVENLABS_API_KEY)")
     voice_id = voice or "7b9mYhmnp0y2qSH1FnBL"  # Bunty - Funny Best Friend
@@ -96,8 +97,9 @@ def _elevenlabs(text: str, voice: str, speed: float, sentence_mode: bool,
     client = httpx.Client(timeout=120.0)
     chunks = []
     for s in sentences:
+        base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
         r = client.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            f"{base}/v1/text-to-speech/{voice_id}",
             headers={"xi-api-key": api_key, "Content-Type": "application/json",
                      "accept": "audio/mpeg"},
             json={
@@ -154,12 +156,13 @@ def _atempo(mp3: bytes, speed: float) -> bytes:
 
 
 def synthesize(text: str, provider: str, voice: str = "", speed: float = 1.0,
-               sentence_mode: bool = True, style: float = 0.35, stability: float = 0.5) -> bytes:
+               sentence_mode: bool = True, style: float = 0.35, stability: float = 0.5,
+               eleven_key: str = "") -> bytes:
     fn = PROVIDERS.get(provider.lower())
     if not fn:
         raise TtsError(f"अनजान provider: {provider}")
     if provider.lower() == "elevenlabs":
-        return fn(text, voice, speed, sentence_mode, style, stability)
+        return fn(text, voice, speed, sentence_mode, style, stability, eleven_key)
     return fn(text, voice, speed, sentence_mode)
 
 

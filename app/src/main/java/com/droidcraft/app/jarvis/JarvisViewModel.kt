@@ -388,7 +388,8 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                     speed = decision.speed,
                     sentenceMode = true,
                     style = decision.elevenStyle,
-                    stability = decision.elevenStability
+                    stability = decision.elevenStability,
+                    elevenKey = VoiceSettings.elevenKey(app)
                 )
                 val file = client.saveMp3(bytes, "reply_${System.currentTimeMillis()}.mp3")
                 if (decision.provider == VoiceRouter.Provider.ELEVENLABS) {
