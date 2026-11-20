@@ -45,15 +45,21 @@ class ElevenLabsTtsClient(private val apiKey: String) {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val responseText = response.body?.string().orEmpty()
-                val message = runCatching {
-                    val error = JSONObject(responseText).optJSONObject("detail")
-                    error?.optString("message")
-                        ?: JSONObject(responseText).optString("message")
-                }.getOrNull().orEmpty()
-                throw ElevenLabsException(response.code, message)
+                val json = runCatching { JSONObject(responseText) }.getOrNull()
+                val detailObject = json?.optJSONObject("detail")
+                val providerStatus = detailObject?.optString("status")
+                    ?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: json?.optString("status")?.takeIf { it.isNotBlank() && it != "null" }
+                val message = detailObject?.optString("message")
+                    ?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: json?.optString("message")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: json?.optString("detail")?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: responseText.trim().takeIf { it.isNotBlank() }
+                    ?: response.message
+                throw ElevenLabsException(response.code, providerStatus, message)
             }
             response.body?.bytes()?.takeIf { it.isNotEmpty() }
-                ?: throw ElevenLabsException(response.code, "ElevenLabs returned no audio.")
+                ?: throw ElevenLabsException(response.code, null, "ElevenLabs returned no audio.")
         }
     }
 
@@ -65,7 +71,21 @@ class ElevenLabsTtsClient(private val apiKey: String) {
 
 class ElevenLabsException(
     val httpStatus: Int,
+    val providerStatus: String?,
     detail: String
 ) : Exception(
     detail.takeIf { it.isNotBlank() } ?: "ElevenLabs request failed (HTTP $httpStatus)."
-)
+) {
+    val isPaymentOrPlanError: Boolean
+        get() {
+            val diagnostic = "${providerStatus.orEmpty()} ${message.orEmpty()}".lowercase()
+            return httpStatus == 402 || listOf(
+                "paid_plan_required",
+                "payment_required",
+                "payment required",
+                "paid plan",
+                "plan required",
+                "subscription required"
+            ).any { diagnostic.contains(it) }
+        }
+}

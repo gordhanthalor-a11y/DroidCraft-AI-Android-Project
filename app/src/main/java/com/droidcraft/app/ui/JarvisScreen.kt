@@ -103,6 +103,7 @@ fun JarvisScreen(
     val voiceFallback by liveViewModel.liveVoiceFallback.collectAsState()
     val hasGeminiKey by liveViewModel.hasGeminiKey.collectAsState()
     val jarvisMessages by jarvisViewModel.messages.collectAsState()
+    val jarvisVoiceNotice by jarvisViewModel.voiceNotice.collectAsState()
 
     var showHistory by remember { mutableStateOf(false) }
     var hudLoading by remember { mutableStateOf(true) }
@@ -360,7 +361,7 @@ fun JarvisScreen(
             }
         }
 
-        if (!liveNotice.isNullOrBlank()) {
+        if (!liveNotice.isNullOrBlank() || !jarvisVoiceNotice.isNullOrBlank()) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -372,17 +373,20 @@ fun JarvisScreen(
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    liveNotice.orEmpty(),
+                    liveNotice?.takeIf { it.isNotBlank() } ?: jarvisVoiceNotice.orEmpty(),
                     color = if (liveStatus == LiveConversationStatus.ERROR) Color(0xFFFF9AA8) else HudMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (liveStatus == LiveConversationStatus.ERROR) {
+                    if (liveStatus == LiveConversationStatus.ERROR && !liveNotice.isNullOrBlank()) {
                         TextButton(onClick = { startLive.value.invoke() }) { Text("Retry", color = HudRed) }
                     }
                     TextButton(onClick = { openSettings.value.invoke() }) { Text("Settings", color = HudMuted) }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { liveViewModel.showLiveNotice("") }) { Text("Dismiss", color = HudMuted) }
+                    TextButton(onClick = {
+                        if (!liveNotice.isNullOrBlank()) liveViewModel.showLiveNotice("")
+                        else jarvisViewModel.dismissVoiceNotice()
+                    }) { Text("Dismiss", color = HudMuted) }
                 }
             }
         }
@@ -392,6 +396,7 @@ fun JarvisScreen(
         JarvisHistoryDialog(
             liveStatus = liveStatus,
             liveNotice = liveNotice,
+            voiceNotice = jarvisVoiceNotice,
             liveMessages = liveMessages,
             liveUserDraft = liveUserDraft,
             liveAssistantDraft = liveAssistantDraft,
@@ -411,6 +416,7 @@ fun JarvisScreen(
                 }
             },
             onOpenSettings = { openSettings.value.invoke() },
+            onDismissVoiceNotice = { jarvisViewModel.dismissVoiceNotice() },
             onOpenChat = onOpenChat,
             onOpenMore = onOpenMore
         )
@@ -451,6 +457,7 @@ private class JarvisHudBridge(
 private fun JarvisHistoryDialog(
     liveStatus: LiveConversationStatus,
     liveNotice: String?,
+    voiceNotice: String?,
     liveMessages: List<LiveConversationMessage>,
     liveUserDraft: String,
     liveAssistantDraft: String,
@@ -463,6 +470,7 @@ private fun JarvisHistoryDialog(
     onToggleLive: () -> Unit,
     onSend: (String) -> Boolean,
     onOpenSettings: () -> Unit,
+    onDismissVoiceNotice: () -> Unit,
     onOpenChat: () -> Unit,
     onOpenMore: () -> Unit
 ) {
@@ -473,6 +481,7 @@ private fun JarvisHistoryDialog(
     val hasLiveRows = liveStatus != LiveConversationStatus.IDLE || visibleLiveMessages.isNotEmpty() ||
         liveUserDraft.isNotBlank() || liveAssistantDraft.isNotBlank()
     val activeVoice = effectiveVoice ?: selectedVoice
+    val historyNotice = liveNotice?.takeIf { it.isNotBlank() } ?: voiceNotice
 
     LaunchedEffect(visibleJarvisMessages.size, visibleLiveMessages.size, liveUserDraft, liveAssistantDraft) {
         val count = visibleJarvisMessages.size + visibleLiveMessages.size +
@@ -525,12 +534,20 @@ private fun JarvisHistoryDialog(
                         Text("Connecting… typed messages will be sent when the session is ready.", color = HudMuted, fontSize = 12.sp)
                     }
                 }
-                if (!liveNotice.isNullOrBlank()) {
-                    Text(
-                        liveNotice,
-                        color = if (liveStatus == LiveConversationStatus.ERROR) Color(0xFFFF9AA8) else HudMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                if (!historyNotice.isNullOrBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            historyNotice,
+                            modifier = Modifier.weight(1f),
+                            color = if (liveStatus == LiveConversationStatus.ERROR && !liveNotice.isNullOrBlank()) {
+                                Color(0xFFFF9AA8)
+                            } else HudMuted,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (liveNotice.isNullOrBlank() && !voiceNotice.isNullOrBlank()) {
+                            TextButton(onClick = onDismissVoiceNotice) { Text("Dismiss", color = HudMuted) }
+                        }
+                    }
                 }
                 if (hasLiveRows) {
                     Text(

@@ -53,11 +53,26 @@ object StudioSettings {
         prefs(context).edit().putString("tts_provider", v).apply()
     }
 
+    /** Voice Studio keeps its provider choice separate from Dubbing's shared provider setting. */
+    fun voiceStudioTtsProvider(context: Context): String =
+        prefs(context).getString("voice_studio_tts_provider", ttsProvider(context)) ?: ttsProvider(context)
+
+    fun setVoiceStudioTtsProvider(context: Context, v: String) {
+        prefs(context).edit().putString("voice_studio_tts_provider", v).apply()
+    }
+
     fun ttsVoice(context: Context): String =
         prefs(context).getString("tts_voice", "") ?: ""
 
     fun setTtsVoice(context: Context, v: String) {
         prefs(context).edit().putString("tts_voice", v).apply()
+    }
+
+    fun voiceStudioTtsVoice(context: Context): String =
+        prefs(context).getString("voice_studio_tts_voice", ttsVoice(context)) ?: ttsVoice(context)
+
+    fun setVoiceStudioTtsVoice(context: Context, v: String) {
+        prefs(context).edit().putString("voice_studio_tts_voice", v).apply()
     }
 
     fun ttsSpeed(context: Context): Float =

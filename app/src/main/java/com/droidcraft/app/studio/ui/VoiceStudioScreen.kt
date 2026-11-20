@@ -20,9 +20,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.studio.tts.Mp3Player
 import com.droidcraft.app.studio.tts.TtsClient
+import com.droidcraft.app.studio.tts.TtsRequestException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -46,13 +49,13 @@ fun VoiceStudioScreen() {
     val player = remember { Mp3Player(context) }
 
     var script by remember { mutableStateOf("") }
-    var provider by remember { mutableStateOf(StudioSettings.ttsProvider(context)) }
-    var voice by remember { mutableStateOf(StudioSettings.ttsVoice(context)) }
+    var provider by remember { mutableStateOf(StudioSettings.voiceStudioTtsProvider(context)) }
+    var voice by remember { mutableStateOf(StudioSettings.voiceStudioTtsVoice(context)) }
     var speed by remember { mutableFloatStateOf(StudioSettings.ttsSpeed(context)) }
     var sentenceMode by remember { mutableStateOf(StudioSettings.sentenceMode(context)) }
     var voices by remember { mutableStateOf<List<TtsClient.Voice>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
-    var mp3 by remember { mutableStateOf<File?>(null) }
+    var audioFile by remember { mutableStateOf<File?>(null) }
     var status by remember { mutableStateOf("") }
 
     var showSettings by remember { mutableStateOf(false) }
@@ -64,9 +67,9 @@ fun VoiceStudioScreen() {
 
     LaunchedEffect(provider) {
         voices = client.voices(provider)
-        if (voice.isBlank() && voices.isNotEmpty()) {
+        if (voices.isNotEmpty() && voices.none { it.id == voice }) {
             voice = voices.first().id
-            StudioSettings.setTtsVoice(context, voice)
+            StudioSettings.setVoiceStudioTtsVoice(context, voice)
         }
     }
 
@@ -115,6 +118,11 @@ fun VoiceStudioScreen() {
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Text(
+                        "ElevenLabs uses the secure key from Jarvis voice settings or a key configured on your server.",
+                        fontSize = 11.sp,
+                        color = Slate
+                    )
                     Row {
                         TextButton(onClick = {
                             runCatching {
@@ -159,7 +167,7 @@ fun VoiceStudioScreen() {
                 selected = provider == "smallest",
                 onClick = {
                     provider = "smallest"
-                    StudioSettings.setTtsProvider(context, "smallest")
+                    StudioSettings.setVoiceStudioTtsProvider(context, "smallest")
                 },
                 label = { Text("Smallest AI") }
             )
@@ -167,9 +175,24 @@ fun VoiceStudioScreen() {
                 selected = provider == "heygen",
                 onClick = {
                     provider = "heygen"
-                    StudioSettings.setTtsProvider(context, "heygen")
+                    StudioSettings.setVoiceStudioTtsProvider(context, "heygen")
                 },
                 label = { Text("HeyGen") }
+            )
+            FilterChip(
+                selected = provider == "elevenlabs",
+                onClick = {
+                    provider = "elevenlabs"
+                    StudioSettings.setVoiceStudioTtsProvider(context, "elevenlabs")
+                },
+                label = { Text("ElevenLabs") }
+            )
+        }
+        if (provider == "elevenlabs") {
+            Text(
+                "If this voice is blocked on the free plan, Voice Studio will create a free phone-voice WAV instead.",
+                fontSize = 11.sp,
+                color = Slate
             )
         }
 
@@ -194,7 +217,7 @@ fun VoiceStudioScreen() {
                             text = { Text(v.name) },
                             onClick = {
                                 voice = v.id
-                                StudioSettings.setTtsVoice(context, v.id)
+                                StudioSettings.setVoiceStudioTtsVoice(context, v.id)
                                 expanded = false
                             }
                         )
@@ -250,15 +273,40 @@ fun VoiceStudioScreen() {
                 busy = true
                 status = "Awaaz बन रही है… server से audio आ रहा है"
                 scope.launch {
-                    runCatching {
-                        val bytes = client.synthesize(script, provider, voice, speed, sentenceMode)
+                    try {
+                        val bytes = client.synthesize(
+                            text = script,
+                            provider = provider,
+                            voice = voice,
+                            speed = speed,
+                            sentenceMode = sentenceMode,
+                            elevenKey = if (provider == "elevenlabs") VoiceSettings.elevenKey(context) else ""
+                        )
                         val f = client.saveMp3(bytes)
-                        mp3 = f
+                        audioFile = f
                         status = "तैयार ✅ ${f.name} (${bytes.size / 1024} KB)"
-                    }.onFailure {
-                        status = "Fail: ${it.message}"
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: TtsRequestException) {
+                        if (provider == "elevenlabs" && error.isPaymentOrPlanError) {
+                            try {
+                                val fallbackFile = client.synthesizePhoneWav(script, speed)
+                                audioFile = fallbackFile
+                                status = "ElevenLabs free plan par ye awaaz nahi chalegi — phone ki free voice se audio तैयार ✅ ${fallbackFile.name}"
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (fallbackError: Exception) {
+                                audioFile = null
+                                status = "ElevenLabs free plan par ye awaaz nahi chalegi. Phone ki free voice fallback भी नहीं बन पाई: ${fallbackError.message ?: "unknown error"}"
+                            }
+                        } else {
+                            status = "Fail: ${error.message}"
+                        }
+                    } catch (error: Exception) {
+                        status = "Fail: ${error.message}"
+                    } finally {
+                        busy = false
                     }
-                    busy = false
                 }
             },
             enabled = !busy,
@@ -270,11 +318,15 @@ fun VoiceStudioScreen() {
         }
 
         if (status.isNotBlank()) {
-            Text(status, fontSize = 12.sp, color = if (status.contains("Fail")) Red else Green)
+            Text(
+                status,
+                fontSize = 12.sp,
+                color = if (status.contains("Fail") || status.contains("ElevenLabs free plan")) Red else Green
+            )
         }
 
         // playback
-        mp3?.let { f ->
+        audioFile?.let { f ->
             Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(f.name, fontSize = 12.sp, color = Light, fontWeight = FontWeight.SemiBold)

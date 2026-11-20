@@ -11,6 +11,13 @@ object GeminiModelSettings {
      * screen can refresh this list against the models visible to the user's API key.
      */
     val DEFAULT_MODELS = listOf(
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemini-3-flash-preview"
+    )
+
+    private val PREVIOUS_BUILT_IN_MODELS = listOf(
         "gemini-3.8-flash",
         "gemini-4-hydrogen",
         "gemini-3.6-flash",
@@ -27,9 +34,11 @@ object GeminiModelSettings {
             .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .getString(PREFERENCE_KEY, null)
             ?: return DEFAULT_MODELS
-        return runCatching { parse(saved) }
+        val parsed = runCatching { parse(saved) }
             .getOrDefault(DEFAULT_MODELS)
             .ifEmpty { DEFAULT_MODELS }
+        // Upgrade a previously saved copy of the app's built-in order to the user's verified list.
+        return if (parsed == PREVIOUS_BUILT_IN_MODELS) write(context, DEFAULT_MODELS) else parsed
     }
 
     fun write(context: Context, modelIds: List<String>): List<String> {
@@ -56,6 +65,9 @@ object GeminiModelSettings {
             value.trim().removePrefix("models/").also { model ->
                 require(modelIdPattern.matches(model)) {
                     "Invalid Gemini model ID '$value'. Use an ID such as gemini-3.8-flash."
+                }
+                require(!model.equals("gemini-2.5-flash", ignoreCase = true)) {
+                    "gemini-2.5-flash is no longer available to new users and cannot be used."
                 }
             }
         }.distinct()

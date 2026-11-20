@@ -444,12 +444,25 @@ internal class GeminiLiveVoiceSession(
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (_: Exception) {
+                    } catch (error: ElevenLabsException) {
                         if (!stopped.get()) {
-                            switchToGemini(
-                                "ElevenLabs is unavailable (for example, credits may be exhausted). " +
-                                    "Gemini Live (free) is continuing this conversation."
-                            )
+                            val notice = if (error.isPaymentOrPlanError) {
+                                "ElevenLabs free plan par ye awaaz nahi chalegi " +
+                                    "(${error.providerStatus ?: "HTTP ${error.httpStatus}"}). Gemini Live ki free awaaz se baat jaari hai."
+                            } else {
+                                "ElevenLabs voice failed (HTTP ${error.httpStatus}): ${error.message}. " +
+                                    "Gemini Live ki free awaaz se baat jaari hai."
+                            }
+                            Log.w(LIVE_LOG_TAG, notice)
+                            switchToGemini(notice)
+                            playGeminiFallback(nativeAudio, hadAudio)
+                        }
+                    } catch (error: Exception) {
+                        if (!stopped.get()) {
+                            val notice = "ElevenLabs voice failed: ${error.message ?: "unknown error"}. " +
+                                "Gemini Live ki free awaaz se baat jaari hai."
+                            Log.w(LIVE_LOG_TAG, notice)
+                            switchToGemini(notice)
                             playGeminiFallback(nativeAudio, hadAudio)
                         }
                     }

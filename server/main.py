@@ -140,7 +140,7 @@ def tts(req: TtsRequest, request: Request):
         )
         return Response(content=data, media_type="audio/mpeg")
     except TtsError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
         log.error("tts error: %s", e)
         raise HTTPException(status_code=502, detail=f"TTS fail: {e}")

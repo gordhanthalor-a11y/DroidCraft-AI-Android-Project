@@ -20,7 +20,9 @@ log = logging.getLogger("jarvis-tts")
 # ------------------------------------------------------------------ TTS
 
 class TtsError(Exception):
-    pass
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _smallest(
@@ -118,7 +120,16 @@ def _elevenlabs(text: str, voice: str, speed: float, sentence_mode: bool,
             },
         )
         if r.status_code >= 300:
-            raise TtsError(f"ElevenLabs {r.status_code}: {r.text[:200]}")
+            detail = r.text[:200]
+            lowered = detail.lower()
+            plan_error = r.status_code == 402 or any(marker in lowered for marker in (
+                "paid_plan_required", "payment_required", "payment required", "paid plan",
+                "plan required", "subscription required",
+            ))
+            raise TtsError(
+                f"ElevenLabs {r.status_code}: {detail}",
+                status_code=402 if plan_error else 400,
+            )
         chunks.append(r.content)
         if sentence_mode and len(sentences) > 1:
             chunks.append(b"\x00" * 2400)

@@ -27,7 +27,7 @@ class GeminiClient(
 
     companion object {
         /** Kept as a source-compatible name for existing callers; requests use the ordered list. */
-        const val MODEL_NAME = "gemini-3.8-flash"
+        const val MODEL_NAME = "gemini-3.1-flash-lite"
         private const val API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
         private const val MODEL_LIST_URL = "https://generativelanguage.googleapis.com/v1beta/models"
         private const val MAX_MODEL_LIST_PAGES = 5
@@ -99,6 +99,7 @@ class GeminiClient(
         }
 
         private fun isTextModel(modelId: String): Boolean {
+            if (modelId.equals("gemini-2.5-flash", ignoreCase = true)) return false
             if (!modelId.startsWith("gemini-", ignoreCase = true)) return false
             val lowered = modelId.lowercase()
             return listOf("-live", "-tts", "-image", "-transcribe", "-translate", "-embedding", "nano-banana", "omni")

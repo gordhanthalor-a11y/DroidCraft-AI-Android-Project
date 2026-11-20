@@ -161,7 +161,7 @@ fun SettingsScreen(
                     minLines = 3,
                     maxLines = 8,
                     label = { Text("Ordered Gemini model IDs") },
-                    placeholder = { Text("gemini-3.8-flash, gemini-4-hydrogen") }
+                    placeholder = { Text("gemini-3.1-flash-lite, gemini-flash-lite-latest, gemini-3.8-flash, gemini-3-flash-preview") }
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),

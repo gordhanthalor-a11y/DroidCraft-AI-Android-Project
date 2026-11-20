@@ -51,8 +51,9 @@ class Mp3Player(private val context: Context) {
         val uri = androidx.core.content.FileProvider.getUriForFile(
             context, "${context.packageName}.fileprovider", file
         )
+        val mimeType = if (file.extension.equals("wav", ignoreCase = true)) "audio/wav" else "audio/mpeg"
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "audio/mpeg"
+            type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

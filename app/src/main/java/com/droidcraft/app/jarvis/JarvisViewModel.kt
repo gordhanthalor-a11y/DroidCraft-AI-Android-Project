@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.droidcraft.app.ai.ElevenLabsException
 import com.droidcraft.app.jarvis.character.Emotion
 import com.droidcraft.app.jarvis.character.EmotionEngine
 import com.droidcraft.app.jarvis.character.JarvisCharacter
@@ -23,6 +24,7 @@ import com.droidcraft.app.data.GeminiApiKeyStore
 import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.data.local.MemoryEntity
 import com.droidcraft.app.studio.tts.TtsClient
+import com.droidcraft.app.studio.tts.TtsRequestException
 import com.droidcraft.app.studio.tts.Mp3Player
 import java.util.Calendar
 import java.util.Locale
@@ -37,6 +39,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val memory = MemoryManager(application)
 
     private var tts: TextToSpeech? = null
+    private var pendingPhoneSpeech: Pair<String, Float>? = null
 
     private val _messages = MutableStateFlow<List<JarvisMessage>>(emptyList())
     val messages: StateFlow<List<JarvisMessage>> = _messages.asStateFlow()
@@ -76,6 +79,8 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     val emotion: StateFlow<Emotion> = _emotion.asStateFlow()
     private val _voiceLabel = MutableStateFlow("")
     val voiceLabel: StateFlow<String> = _voiceLabel.asStateFlow()
+    private val _voiceNotice = MutableStateFlow<String?>(null)
+    val voiceNotice: StateFlow<String?> = _voiceNotice.asStateFlow()
     private var voicePlayer: Mp3Player? = null
 
     private var idCounter = 0L
@@ -234,6 +239,10 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 })
                 _ttsReady.value = true
+                pendingPhoneSpeech?.let { (text, speed) ->
+                    pendingPhoneSpeech = null
+                    speakPhone(text, speed)
+                }
             }
         }
     }
@@ -244,6 +253,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun speak(text: String, emotion: Emotion = _emotion.value) {
         _emotion.value = emotion
+        _voiceNotice.value = null
         if (!_autoSpeak.value) return
 
         val app = getApplication<Application>()
@@ -266,8 +276,12 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun speakPhone(text: String, speed: Float) {
-        val engine = tts ?: return
-        if (!_ttsReady.value) return
+        val engine = tts
+        if (engine == null || !_ttsReady.value) {
+            pendingPhoneSpeech = text to speed
+            return
+        }
+        pendingPhoneSpeech = null
         engine.setSpeechRate(speed.coerceIn(0.5f, 2.0f))
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_${System.currentTimeMillis()}")
     }
@@ -301,17 +315,39 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                 _isSpeaking.value = true
                 val player = voicePlayer ?: Mp3Player(app).also { voicePlayer = it }
                 player.play(file) { _isSpeaking.value = false }
-            }.onFailure {
-                // credits खत्म / server नहीं — चुप नहीं होंगे
+            }.onFailure { error ->
+                // Never fail silently: a plan restriction or service error falls back to Android TTS.
                 if (decision.provider == VoiceRouter.Provider.ELEVENLABS) {
                     VoiceState.elevenBlocked = true
+                    _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
+                    _voiceNotice.value = if (isElevenLabsPaymentOrPlanError(error)) {
+                        "ElevenLabs free plan par ye awaaz nahi chalegi. Phone ki free voice se jawab suna diya."
+                    } else {
+                        "ElevenLabs awaaz nahi chal saki (${error.message ?: "service error"}). Phone ki free voice se jawab suna diya."
+                    }
                 }
                 speakPhone(text, decision.speed)
             }
         }
     }
 
+    private fun isElevenLabsPaymentOrPlanError(error: Throwable): Boolean {
+        if (error is ElevenLabsException && error.isPaymentOrPlanError) return true
+        if (error is TtsRequestException && error.isPaymentOrPlanError) return true
+        val details = generateSequence(error as Throwable?) { it.cause }
+            .take(5)
+            .joinToString(" ") { it.message.orEmpty() }
+            .lowercase()
+        return listOf("paid_plan_required", "payment_required", "payment required", "paid plan", "plan required")
+            .any { details.contains(it) } || Regex("""\b402\b""").containsMatchIn(details)
+    }
+
+    fun dismissVoiceNotice() {
+        _voiceNotice.value = null
+    }
+
     fun stopSpeak() {
+        pendingPhoneSpeech = null
         tts?.stop()
         runCatching { voicePlayer?.stop() }
         _isSpeaking.value = false
