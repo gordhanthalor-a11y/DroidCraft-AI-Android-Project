@@ -29,6 +29,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,9 +54,18 @@ fun SettingsScreen(
     val selectedVoice by viewModel.liveVoiceMode.collectAsState()
     val hasGeminiKey by viewModel.hasGeminiKey.collectAsState()
     val hasElevenLabsKey by viewModel.hasElevenLabsKey.collectAsState()
+    val modelOrder by viewModel.geminiModelOrder.collectAsState()
+    val isRefreshingModels by viewModel.refreshingGeminiModels.collectAsState()
+    val modelSettingsMessage by viewModel.geminiModelSettingsMessage.collectAsState()
+    var modelOrderText by remember { mutableStateOf(modelOrder.joinToString(System.lineSeparator())) }
+    var modelOrderError by remember { mutableStateOf("") }
     var studioServerUrl by remember { mutableStateOf(StudioSettings.serverUrl(context)) }
     var studioServerMessage by remember { mutableStateOf("") }
     var studioServerSaved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(modelOrder) {
+        modelOrderText = modelOrder.joinToString(System.lineSeparator())
+    }
 
     Column(
         modifier = Modifier
@@ -132,6 +142,70 @@ fun SettingsScreen(
             onSave = viewModel::saveGeminiKey,
             onRemove = viewModel::clearGeminiKey
         )
+
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Gemini text model fallback order", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Models are tried from top to bottom. A 503 is retried once after a short pause; 429 and 404 move to the next model automatically. Only after every listed model fails will Chat show an error. Use one model ID per line.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = modelOrderText,
+                    onValueChange = {
+                        modelOrderText = it
+                        modelOrderError = ""
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 8,
+                    label = { Text("Ordered Gemini model IDs") },
+                    placeholder = { Text("gemini-3.8-flash, gemini-4-hydrogen") }
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            runCatching { viewModel.saveGeminiModelOrder(modelOrderText) }
+                                .onSuccess { saved ->
+                                    modelOrderText = saved.joinToString(System.lineSeparator())
+                                    modelOrderError = ""
+                                }
+                                .onFailure { modelOrderError = it.message ?: "Could not save model order." }
+                        }
+                    ) { Text("Save order") }
+                    OutlinedButton(
+                        onClick = viewModel::refreshAvailableGeminiModels,
+                        enabled = hasGeminiKey && !isRefreshingModels
+                    ) {
+                        Text(if (isRefreshingModels) "Checking…" else "Refresh from Google")
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        val defaults = viewModel.resetGeminiModelOrder()
+                        modelOrderText = defaults.joinToString(System.lineSeparator())
+                        modelOrderError = ""
+                    }
+                ) { Text("Restore defaults") }
+                val modelMessage = modelOrderError.ifBlank { modelSettingsMessage }
+                if (modelMessage.isNotBlank()) {
+                    Text(
+                        modelMessage,
+                        color = if (modelOrderError.isNotBlank() || modelMessage.startsWith("Could not") || modelMessage.startsWith("Add a")) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
 
         ProviderKeyCard(
             title = "ElevenLabs API key",

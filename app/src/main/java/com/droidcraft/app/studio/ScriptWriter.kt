@@ -3,6 +3,7 @@ package com.droidcraft.app.studio
 import android.content.Context
 import com.droidcraft.app.ai.GeminiClient
 import com.droidcraft.app.data.GeminiApiKeyStore
+import com.droidcraft.app.data.GeminiModelSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -40,7 +41,10 @@ object ScriptWriter {
             """.trimIndent()
 
             runCatching {
-                val reply = GeminiClient(apiKey).reply(listOf(true to prompt))
+                val reply = GeminiClient(
+                    apiKey = apiKey,
+                    modelOrder = GeminiModelSettings.read(context)
+                ).reply(listOf(true to prompt))
                 val hook = reply.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: ""
                 Result(reply.trim(), hook)
             }.getOrDefault(Result("", ""))

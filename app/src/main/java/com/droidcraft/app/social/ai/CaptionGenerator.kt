@@ -3,6 +3,7 @@ package com.droidcraft.app.social.ai
 import android.content.Context
 import android.util.Log
 import com.droidcraft.app.data.GeminiApiKeyStore
+import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.data.local.AppDatabase
 import com.droidcraft.app.social.data.PostCaptionEntity
 import com.droidcraft.app.social.data.PostQueueEntity
@@ -59,7 +60,10 @@ object CaptionGenerator {
         """.trimIndent()
 
         val jsonText = runCatching {
-            val client = com.droidcraft.app.ai.GeminiClient(apiKey)
+            val client = com.droidcraft.app.ai.GeminiClient(
+                apiKey = apiKey,
+                modelOrder = GeminiModelSettings.read(context)
+            )
             kotlinx.coroutines.runBlocking { client.reply(listOf(true to prompt)) }
         }.getOrElse {
             Log.e(TAG, "gemini caption fail", it)

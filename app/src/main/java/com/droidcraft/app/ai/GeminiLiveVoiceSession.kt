@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.util.Base64
+import android.util.Log
 import com.droidcraft.app.model.LiveConversationStatus
 import com.droidcraft.app.model.LiveVoiceMode
 import kotlinx.coroutines.CancellationException
@@ -75,6 +76,15 @@ internal class GeminiLiveVoiceSession(
     private var setupComplete = false
 
     @Volatile
+    private var webSocketOpened = false
+
+    @Volatile
+    private var setupMessageSent = false
+
+    @Volatile
+    private var lastConnectionEvent = "Waiting for the WebSocket handshake."
+
+    @Volatile
     private var activeVoice = if (requestedVoice == LiveVoiceMode.ELEVENLABS && elevenLabsApiKey.isNotBlank()) {
         LiveVoiceMode.ELEVENLABS
     } else {
@@ -97,12 +107,22 @@ internal class GeminiLiveVoiceSession(
 
     fun start() {
         if (stopped.get()) return
+        lastConnectionEvent = "Opening the Gemini Live WebSocket."
+        Log.i(LIVE_LOG_TAG, "Starting Live session with model=$LIVE_MODEL at the v1beta BidiGenerateContent endpoint.")
         listener.onStatus(LiveConversationStatus.CONNECTING)
         listener.onEffectiveVoiceChanged(activeVoice)
         responseScope.launch {
             delay(CONNECTION_TIMEOUT_MS)
             if (!setupComplete && !stopped.get()) {
-                fail("Gemini Live timed out while connecting. Check your network, API key, and Live API access, then retry.")
+                val stage = when {
+                    !webSocketOpened -> "No WebSocket handshake completed."
+                    !setupMessageSent -> "The socket opened, but the setup message was not accepted by the client socket."
+                    else -> "The socket opened and setup was sent, but Google did not send setupComplete."
+                }
+                fail(
+                    "Gemini Live setup timed out after ${CONNECTION_TIMEOUT_MS / 1_000} seconds for $LIVE_MODEL. " +
+                        "$stage Last connection event: $lastConnectionEvent"
+                )
             }
         }
 
@@ -112,38 +132,58 @@ internal class GeminiLiveVoiceSession(
             .addPathSegments("ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
             .addQueryParameter("key", geminiApiKey)
             .build()
-        // OkHttp's WebSocket client accepts the standard wss URL and manages the upgrade.
+        // Official Gemini Live v1beta endpoint; OkHttp performs the HTTP-to-WebSocket upgrade.
         val request = Request.Builder()
             .url(httpsUrl.toString().replaceFirst("https://", "wss://"))
             .build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (!webSocket.send(buildSetupMessage())) {
-                    fail("Gemini Live connected, but its setup message could not be sent. Please retry.")
+                webSocketOpened = true
+                lastConnectionEvent = "WebSocket opened (HTTP ${response.code}); sending setup for $LIVE_MODEL."
+                Log.i(LIVE_LOG_TAG, lastConnectionEvent)
+                if (webSocket.send(buildSetupMessage())) {
+                    setupMessageSent = true
+                    lastConnectionEvent = "Setup message sent; waiting for Google's setupComplete response."
+                } else {
+                    fail("Gemini Live WebSocket opened, but the setup message send returned false for $LIVE_MODEL.")
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                lastConnectionEvent = "Received a server message from Gemini Live."
                 handleServerMessage(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (!stopped.get()) {
                     val responseText = runCatching { response?.body?.string().orEmpty() }.getOrDefault("")
-                    val providerMessage = extractProviderMessage(responseText)
-                    val code = response?.code?.let { " (HTTP $it)" }.orEmpty()
-                    val detail = providerMessage.ifBlank { t.localizedMessage.orEmpty() }
-                    fail(
-                        if (detail.isNotBlank()) "Gemini Live connection failed$code: $detail"
-                        else "Gemini Live connection failed$code. Check your network, API key, and Live API access."
-                    )
+                    val providerError = runCatching { JSONObject(responseText).optJSONObject("error") }.getOrNull()
+                    val providerMessage = providerError?.optString("message")
+                        ?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: extractProviderMessage(responseText)
+                    val detail = providerMessage.ifBlank { describeThrowable(t) }
+                    val providerCode = response?.code ?: providerError?.optInt("code", 0)?.takeIf { it > 0 }
+                    val providerStatus = providerError?.optString("status")
+                        ?.takeIf { it.isNotBlank() && it != "null" }
+                    val error = if (providerCode != null || providerStatus != null) {
+                        buildProviderError(providerCode, providerStatus, detail.ifBlank { describeThrowable(t) })
+                    } else {
+                        "Gemini Live WebSocket connection failed before setup: ${describeThrowable(t)}"
+                    }
+                    lastConnectionEvent = "WebSocket failure: $error"
+                    fail(error)
                 }
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                lastConnectionEvent = "Google is closing the Live WebSocket (code $code): ${reason.ifBlank { "no reason supplied" }}"
+                Log.w(LIVE_LOG_TAG, redactSecrets(lastConnectionEvent))
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (!stopped.get()) {
-                    val detail = reason.takeIf { it.isNotBlank() } ?: "The provider closed the session."
-                    fail("Gemini Live ended the connection (code $code): $detail Start a new conversation to reconnect.")
+                    val detail = reason.takeIf { it.isNotBlank() } ?: "The provider closed the session without a reason."
+                    fail("Gemini Live ended the WebSocket (code $code): $detail")
                 }
             }
         })
@@ -227,22 +267,58 @@ internal class GeminiLiveVoiceSession(
 
     private fun extractProviderMessage(serialized: String): String {
         if (serialized.isBlank()) return ""
-        val json = runCatching { JSONObject(serialized) }.getOrNull() ?: return serialized.trim().take(320)
-        val error = json.optJSONObject("error") ?: return serialized.trim().take(320)
+        val json = runCatching { JSONObject(serialized) }.getOrNull()
+            ?: return redactSecrets(serialized.trim().take(600))
+        val error = json.optJSONObject("error") ?: return redactSecrets(serialized.trim().take(600))
         val message = error.optString("message").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
         val status = error.optString("status").takeIf { it.isNotBlank() && it != "null" }
-        return listOfNotNull(message, status?.let { "[$it]" }).joinToString(" ")
+        return redactSecrets(listOfNotNull(message, status?.let { "[$it]" }).joinToString(" ").take(600))
     }
+
+    private fun buildProviderError(code: Int?, status: String?, detail: String): String {
+        val normalizedStatus = status.orEmpty().uppercase()
+        val normalizedDetail = detail.lowercase()
+        val modelUnavailable = normalizedStatus.contains("NOT_FOUND") ||
+            normalizedStatus.contains("MODEL_NOT_SUPPORTED") ||
+            (normalizedDetail.contains("model") && listOf(
+                "not found", "not available", "unavailable", "unsupported", "not supported", "does not support", "not enabled", "unknown"
+            ).any { normalizedDetail.contains(it) })
+        val codeLabel = code?.let { " (HTTP $it)" }.orEmpty()
+        return when {
+            code == 404 || modelUnavailable ->
+                "Gemini Live model $LIVE_MODEL is unavailable to this API key or endpoint$codeLabel. Google returned: $detail"
+            code == 403 || normalizedStatus.contains("PERMISSION_DENIED") ->
+                "Google denied access to Gemini Live model $LIVE_MODEL$codeLabel. Check whether this API key has Live API access. Google returned: $detail"
+            code == 503 || normalizedStatus.contains("UNAVAILABLE") ->
+                "Gemini Live service is temporarily unavailable$codeLabel. Google returned: $detail"
+            else -> "Gemini Live provider error$codeLabel${status?.let { " ($it)" }.orEmpty()}: $detail"
+        }
+    }
+
+    private fun describeThrowable(throwable: Throwable): String =
+        generateSequence(throwable) { it.cause }
+            .take(5)
+            .joinToString(" → ") { error ->
+                "${error.javaClass.simpleName}: ${error.message.orEmpty()}"
+            }
+            .let(::redactSecrets)
+            .take(800)
+
+    private fun redactSecrets(value: String): String =
+        Regex("""(?i)([?&]key=)[^&\s]+""")
+            .replace(value) { match -> "${match.groupValues[1]}[redacted]" }
 
     private fun handleServerMessage(serialized: String) {
         if (stopped.get()) return
         val message = runCatching { JSONObject(serialized) }.getOrNull() ?: return
 
         message.optJSONObject("error")?.let { error ->
-            val providerMessage = error.optString("message").takeIf { it.isNotBlank() }
-                ?: "The Gemini Live provider returned an error."
-            val code = error.optInt("code", 0).takeIf { it > 0 }?.let { " (HTTP $it)" }.orEmpty()
-            fail("Gemini Live error$code: $providerMessage")
+            val providerMessage = error.optString("message")
+                .takeIf { it.isNotBlank() && it != "null" }
+                ?: "The Gemini Live provider returned an error without a message."
+            val code = error.optInt("code", 0).takeIf { it > 0 }
+            val status = error.optString("status").takeIf { it.isNotBlank() && it != "null" }
+            fail(buildProviderError(code, status, redactSecrets(providerMessage)))
             return
         }
         if (message.has("goAway")) {
@@ -256,6 +332,8 @@ internal class GeminiLiveVoiceSession(
         }
         if (message.has("setupComplete")) {
             setupComplete = true
+            lastConnectionEvent = "Google acknowledged setupComplete for $LIVE_MODEL."
+            Log.i(LIVE_LOG_TAG, lastConnectionEvent)
             startMicrophone()
             return
         }
@@ -501,12 +579,15 @@ internal class GeminiLiveVoiceSession(
         responseScope.cancel()
         audioPlayer.close()
         runCatching { client.dispatcher.executorService.shutdown() }
-        listener.onStatus(LiveConversationStatus.ERROR, message)
+        val surfacedMessage = redactSecrets(message)
+        Log.e(LIVE_LOG_TAG, surfacedMessage)
+        listener.onStatus(LiveConversationStatus.ERROR, surfacedMessage)
     }
 
     private companion object {
+        const val LIVE_LOG_TAG = "JarvisLive"
         const val LIVE_MODEL = "models/gemini-3.8-live"
-        const val CONNECTION_TIMEOUT_MS = 20_000L
+        const val CONNECTION_TIMEOUT_MS = 35_000L
         const val GEMINI_PRESET_VOICE = "Aoede"
         const val INPUT_SAMPLE_RATE = 16_000
         const val INPUT_CHUNK_BYTES = 2_048

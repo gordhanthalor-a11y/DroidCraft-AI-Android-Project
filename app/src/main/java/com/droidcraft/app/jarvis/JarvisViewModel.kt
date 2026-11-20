@@ -20,6 +20,7 @@ import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.jarvis.voice.VoiceState
 import com.droidcraft.app.jarvis.wake.WakeWordService
 import com.droidcraft.app.data.GeminiApiKeyStore
+import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.data.local.MemoryEntity
 import com.droidcraft.app.studio.tts.TtsClient
 import com.droidcraft.app.studio.tts.Mp3Player
@@ -167,7 +168,11 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _isThinking.value = true
             try {
-                val brain = JarvisBrain(key, characterContext())
+                val brain = JarvisBrain(
+                    key,
+                    characterContext(),
+                    GeminiModelSettings.read(getApplication())
+                )
                 val reply = brain.reply(_messages.value)
                 if (reply.action != null) {
                     val outcome = device.execute(reply.action)

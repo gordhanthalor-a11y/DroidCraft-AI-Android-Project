@@ -8,13 +8,15 @@ import com.droidcraft.app.ai.GeminiClient
  */
 class JarvisBrain(
     apiKey: String,
-    userContext: com.droidcraft.app.jarvis.character.JarvisCharacter.UserContext? = null
+    userContext: com.droidcraft.app.jarvis.character.JarvisCharacter.UserContext? = null,
+    modelOrder: List<String> = com.droidcraft.app.data.GeminiModelSettings.DEFAULT_MODELS
 ) {
 
     private val client = GeminiClient(
-        apiKey,
-        userContext?.let { com.droidcraft.app.jarvis.character.JarvisCharacter.systemPrompt(it) }
-            ?: JARVIS_PROMPT
+        apiKey = apiKey,
+        systemPrompt = userContext?.let { com.droidcraft.app.jarvis.character.JarvisCharacter.systemPrompt(it) }
+            ?: JARVIS_PROMPT,
+        modelOrder = modelOrder
     )
 
     suspend fun reply(history: List<JarvisMessage>): BrainReply {

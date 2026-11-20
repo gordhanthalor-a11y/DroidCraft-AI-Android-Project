@@ -2,11 +2,13 @@ package com.droidcraft.app.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.speech.tts.TextToSpeech
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.droidcraft.app.ai.GeminiLiveVoiceSession
 import com.droidcraft.app.ai.GeminiClient
 import com.droidcraft.app.data.GeminiApiKeyStore
+import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.data.SecureKeyStore
 import com.droidcraft.app.data.YouTubeApiService
 import com.droidcraft.app.data.local.AppDatabase
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -47,6 +50,24 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
     private val _hasGeminiKey = MutableStateFlow(geminiApiKey.isNotBlank())
     val hasGeminiKey: StateFlow<Boolean> = _hasGeminiKey.asStateFlow()
+
+    private val _geminiModelOrder = MutableStateFlow(GeminiModelSettings.read(application))
+    val geminiModelOrder: StateFlow<List<String>> = _geminiModelOrder.asStateFlow()
+
+    private val _activeGeminiModel = MutableStateFlow(_geminiModelOrder.value.first())
+    val activeGeminiModel: StateFlow<String> = _activeGeminiModel.asStateFlow()
+
+    private val _refreshingGeminiModels = MutableStateFlow(false)
+    val refreshingGeminiModels: StateFlow<Boolean> = _refreshingGeminiModels.asStateFlow()
+
+    private val _geminiModelSettingsMessage = MutableStateFlow("")
+    val geminiModelSettingsMessage: StateFlow<String> = _geminiModelSettingsMessage.asStateFlow()
+
+    private val _speakAssistantReplies = MutableStateFlow(prefs.getBoolean(PREF_CHAT_SPEAK_REPLIES, true))
+    val speakAssistantReplies: StateFlow<Boolean> = _speakAssistantReplies.asStateFlow()
+    private var chatTextToSpeech: TextToSpeech? = null
+    @Volatile private var chatTtsReady = false
+    @Volatile private var pendingChatSpeech: String? = null
 
     private val _hasElevenLabsKey = MutableStateFlow(elevenLabsApiKey.isNotBlank())
     val hasElevenLabsKey: StateFlow<Boolean> = _hasElevenLabsKey.asStateFlow()
@@ -89,6 +110,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     init {
         loadChannels()
         loadVideosFromDb()
+        initializeChatTextToSpeech()
     }
 
     fun loadChannels() {
@@ -137,6 +159,60 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         GeminiApiKeyStore.clear(getApplication())
         geminiApiKey = ""
         _hasGeminiKey.value = false
+    }
+
+    fun saveGeminiModelOrder(text: String): List<String> {
+        val parsed = GeminiModelSettings.parse(text)
+        require(parsed.isNotEmpty()) { "Enter at least one Gemini model ID." }
+        val saved = GeminiModelSettings.write(getApplication(), parsed)
+        _geminiModelOrder.value = saved
+        if (_activeGeminiModel.value !in saved) _activeGeminiModel.value = saved.first()
+        _geminiModelSettingsMessage.value = "Saved ${saved.size} models in this fallback order."
+        return saved
+    }
+
+    fun resetGeminiModelOrder(): List<String> {
+        val saved = GeminiModelSettings.write(getApplication(), GeminiModelSettings.DEFAULT_MODELS)
+        _geminiModelOrder.value = saved
+        _activeGeminiModel.value = saved.first()
+        _geminiModelSettingsMessage.value = "Restored the default Gemini model order."
+        return saved
+    }
+
+    fun refreshAvailableGeminiModels() {
+        if (_refreshingGeminiModels.value) return
+        val key = geminiApiKey
+        if (key.isBlank()) {
+            _geminiModelSettingsMessage.value = "Add a Gemini API key before refreshing models."
+            return
+        }
+        viewModelScope.launch {
+            _refreshingGeminiModels.value = true
+            _geminiModelSettingsMessage.value = "Checking models available to this API key…"
+            try {
+                val available = GeminiClient.fetchAvailableTextModels(key)
+                val ordered = GeminiModelSettings.orderAvailable(available, _geminiModelOrder.value)
+                val saved = GeminiModelSettings.write(getApplication(), ordered)
+                _geminiModelOrder.value = saved
+                if (_activeGeminiModel.value !in saved) _activeGeminiModel.value = saved.first()
+                _geminiModelSettingsMessage.value =
+                    "Found ${available.size} Gemini text models available to this key; saved ${saved.size} in fallback order."
+            } catch (error: Exception) {
+                _geminiModelSettingsMessage.value =
+                    "Could not refresh models: ${error.message ?: "check the key and network, then retry."}"
+            } finally {
+                _refreshingGeminiModels.value = false
+            }
+        }
+    }
+
+    fun setSpeakAssistantReplies(enabled: Boolean) {
+        _speakAssistantReplies.value = enabled
+        prefs.edit().putBoolean(PREF_CHAT_SPEAK_REPLIES, enabled).apply()
+        if (!enabled) {
+            pendingChatSpeech = null
+            chatTextToSpeech?.stop()
+        }
     }
 
     fun saveElevenLabsKey(key: String) {
@@ -305,8 +381,14 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             _isThinking.value = true
             try {
                 val history = _assistantMessages.value.map { it.isUser to it.text }
-                val reply = GeminiClient(key).reply(history)
-                addBotMessage(reply.ifBlank { "(Khaali jawab mila, dobara puchiye)" })
+                val reply = GeminiClient(
+                    apiKey = key,
+                    modelOrder = _geminiModelOrder.value,
+                    onModelSelected = { model -> _activeGeminiModel.value = model }
+                ).reply(history)
+                val spokenReply = reply.ifBlank { "(Khaali jawab mila, dobara puchiye)" }
+                addBotMessage(spokenReply)
+                speakChatReply(spokenReply)
             } catch (e: Exception) {
                 addBotMessage("Jawab nahi mil paya: ${e.message ?: "internet check kariye"}")
             } finally {
@@ -329,6 +411,33 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             ChatMessage(id = (System.currentTimeMillis() + 1).toString(), text = text, isUser = false)
     }
 
+    private fun initializeChatTextToSpeech() {
+        chatTextToSpeech = TextToSpeech(getApplication()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                chatTtsReady = true
+                val pending = pendingChatSpeech
+                pendingChatSpeech = null
+                if (pending != null) speakChatReply(pending)
+            }
+        }
+    }
+
+    private fun speakChatReply(text: String) {
+        if (!_speakAssistantReplies.value || text.isBlank()) return
+        val engine = chatTextToSpeech
+        if (engine == null || !chatTtsReady) {
+            pendingChatSpeech = text
+            return
+        }
+        val locale = if (text.any { it.code in 0x0900..0x097F }) Locale("hi", "IN") else Locale.US
+        val languageStatus = runCatching { engine.setLanguage(locale) }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
+        if (languageStatus < TextToSpeech.LANG_AVAILABLE) {
+            runCatching { engine.setLanguage(Locale.getDefault()) }
+        }
+        engine.setSpeechRate(1.0f)
+        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "assistant_${System.currentTimeMillis()}")
+    }
+
     fun confirmPendingAction() {
         val pending = _pendingConfirmation.value ?: return
         when (pending.action) {
@@ -344,11 +453,15 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
     override fun onCleared() {
         stopLiveConversation()
+        chatTextToSpeech?.stop()
+        chatTextToSpeech?.shutdown()
+        chatTextToSpeech = null
         super.onCleared()
     }
 
     private companion object {
         const val SECURE_ELEVENLABS_KEY = "elevenlabs_api_key"
         const val PREF_LIVE_VOICE_MODE = "live_voice_mode"
+        const val PREF_CHAT_SPEAK_REPLIES = "chat_speak_replies"
     }
 }

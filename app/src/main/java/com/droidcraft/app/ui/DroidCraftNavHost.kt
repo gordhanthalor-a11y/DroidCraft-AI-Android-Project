@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -117,7 +119,8 @@ fun DroidCraftNavHost(
             composable("live") {
                 LiveConversationScreen(
                     viewModel = viewModel,
-                    onOpenSettings = { navController.navigate("settings") }
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenChat = { navController.navigate("assistant") }
                 )
             }
             composable("dubbing") { com.droidcraft.app.studio.ui.DubbingScreen() }
@@ -167,11 +170,26 @@ fun AssistantScreen(
     val pending by viewModel.pendingConfirmation.collectAsState()
     val hasGeminiKey by viewModel.hasGeminiKey.collectAsState()
     val thinking by viewModel.isThinking.collectAsState()
+    val activeModel by viewModel.activeGeminiModel.collectAsState()
+    val speakReplies by viewModel.speakAssistantReplies.collectAsState()
     var input by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("AI Creator Assistant", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text("AI Creator Assistant", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Gemini model: $activeModel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = { viewModel.setSpeakAssistantReplies(!speakReplies) }) {
+                Icon(
+                    imageVector = if (speakReplies) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                    contentDescription = if (speakReplies) "Turn spoken replies off" else "Turn spoken replies on"
+                )
+            }
             TextButton(onClick = onOpenSettings) { Text("Settings") }
         }
         if (!hasGeminiKey) {

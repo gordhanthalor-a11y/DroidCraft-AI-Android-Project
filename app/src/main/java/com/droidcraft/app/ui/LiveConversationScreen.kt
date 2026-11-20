@@ -55,7 +55,8 @@ import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
 @Composable
 fun LiveConversationScreen(
     viewModel: YouTubeAutomationViewModel,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenChat: () -> Unit
 ) {
     val context = LocalContext.current
     val status by viewModel.liveStatus.collectAsState()
@@ -122,6 +123,11 @@ fun LiveConversationScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text(
+                    "Live model: models/gemini-3.8-live · Gemini Live WebSocket v1beta",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
@@ -153,12 +159,27 @@ fun LiveConversationScreen(
         if (notice != null) {
             Spacer(Modifier.height(8.dp))
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Text(
-                    text = notice.orEmpty(),
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = notice.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    if (status == LiveConversationStatus.ERROR) {
+                        Text(
+                            "Fallback: text or voice input → Gemini text reply → phone TTS voice reply.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { viewModel.startLiveConversation() }) { Text("Retry Live Talk") }
+                            TextButton(onClick = onOpenChat) { Text("Open Chat fallback") }
+                        }
+                    }
+                }
             }
         }
 
