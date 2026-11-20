@@ -20,12 +20,25 @@ voice assistant jo Hindi, Hinglish aur English, teenon mein baat karta hai.
 | `Joke sunao` | Hinglish jokes |
 | `Video ideas` / `script likho` | Creator tasks (Gemini) |
 | `mera naam Rahul hai` | Naam yaad rakhta hai |
+| `call papa` / `sms mummy: aa jao` | Contacts se naam se call/SMS |
+| `remember that meri bike ka number 1234 hai` | Baatein yaad (Room memory) |
+| `what do you remember` | Yaadein dikhao |
+| `screen dikhao` / `screen par kya hai` | Screen ka text padho (accessibility) |
+| `tap on WhatsApp` / `subscribe par click karo` | Screen par click (accessibility) |
+| **Live** (header ka 🎚️) | Gemini Live realtime voice — seedha bolo, barge-in ke saath |
+| **🎧 Hey Jarvis** | Background wake-word — "Hey Jarvis" bolo, Jarvis sunna shuru |
 
 ## Voice + awaaz
 - Mic dabao → bolien (Hindi/English) → Jarvis samjhta hai.
 - Jarvis khud **bol kar** jawab deta hai (Text-to-Speech). Upar 🔊/🔇 se awaaz on/off.
 - Arc-reactor ka rang batata hai: **neela** = online, **cyan** = sun raha hai,
   **baingni** = soch raha hai, **hara** = bol raha hai.
+
+## Permissions ek baar mein dena hota hai
+- **Microphone** — voice ke liye (pehli baar).
+- **Contacts** — `call papa` jaise commands ke liye (command bolo toh dialog aa jayega).
+- **Accessibility** — header ka 🧩 icon → "Jarvis Automation" ON → `screen dikhao` / `tap on X`.
+- **Notifications** — 🎧 "Hey Jarvis" background listening ke liye.
 
 ## API key (optional)
 Device ke kaam **bina key ke** chalte hain. Baat-cheet aur creator tasks ke liye Gemini API key
@@ -45,5 +58,10 @@ Web Speech API se voice input/output + same commands.
 - `jarvis/JarvisCommandParser.kt` — offline Hinglish NLU (fast path, no network)
 - `jarvis/JarvisDevice.kt` — device actions (apps, intents, weather, notes, battery, torch)
 - `jarvis/JarvisBrain.kt` — Gemini 2.5 Flash persona + JSON tool output
-- `jarvis/JarvisViewModel.kt` — state, TTS, chat
+- `jarvis/contacts/ContactResolver.kt` — naam se contact (exact/nickname/fuzzy)
+- `jarvis/memory/MemoryManager.kt` + `data/local/AppDatabase.kt` — Room-backed yaadein
+- `jarvis/a11y/JarvisAccessibilityService.kt` — screen padho + tap by text
+- `jarvis/wake/WakeWordService.kt` — "Hey Jarvis" foreground wake-word
+- `jarvis/live/GeminiLiveClient.kt` + `LiveAudio.kt` — Gemini Live WebSocket + 16k/24k PCM
+- `jarvis/JarvisViewModel.kt` — state, TTS, chat, live session
 - `ui/JarvisScreen.kt` — arc-reactor UI, waveform, chat

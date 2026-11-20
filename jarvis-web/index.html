@@ -103,6 +103,7 @@
       <h1>J.A.R.V.I.S.</h1>
       <div class="status" id="status">ONLINE</div>
     </div>
+    <button class="icon-btn" id="wake-btn" title="Hey Jarvis (background sunai)">🎧</button>
     <button class="icon-btn" id="tts-btn" title="Awaaz on/off">🔊</button>
     <button class="icon-btn" id="notes-btn" title="Notes">📝</button>
     <button class="icon-btn" id="key-btn" title="Gemini API key">⚙️</button>
@@ -212,6 +213,53 @@ function speak(text) {
 }
 function stopSpeak() { if (synth) synth.cancel(); }
 
+// "Hey Jarvis" background wake-word (browser version)
+let wakeActive = false;
+let wakeRec = null;
+const wakeBtn = document.getElementById("wake-btn");
+
+function startWake() {
+  if (!SR) { addBot("Is browser mein continuous voice support nahi hai. Chrome try kariye."); return; }
+  wakeActive = true;
+  wakeBtn.textContent = "🌙";
+  wakeBtn.style.borderColor = "var(--cyan)";
+  wakeRec = new SR();
+  wakeRec.lang = "hi-IN";
+  wakeRec.continuous = true;
+  wakeRec.interimResults = true;
+  wakeRec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript.toLowerCase();
+      if (/\b(hey\s+|hello\s+|arree\s+)?jarvis\b/.test(t)) {
+        wakeActive = false;
+        wakeBtn.textContent = "🎧";
+        wakeBtn.style.borderColor = "";
+        try { wakeRec.stop(); } catch {}
+        startListening();
+        break;
+      }
+    }
+  };
+  wakeRec.onend = () => { if (wakeActive) { try { wakeRec.start(); } catch {} } };
+  wakeRec.onerror = () => {
+    wakeActive = false;
+    wakeBtn.textContent = "🎧";
+    wakeBtn.style.borderColor = "";
+  };
+  try { wakeRec.start(); } catch (e) { addBot("Wake-word shuru nahi hua: " + e.message); }
+}
+
+wakeBtn.onclick = () => {
+  if (wakeActive) {
+    wakeActive = false;
+    if (wakeRec) try { wakeRec.stop(); } catch {}
+    wakeBtn.textContent = "🎧";
+    wakeBtn.style.borderColor = "";
+  } else {
+    startWake();
+  }
+};
+
 document.getElementById("tts-btn").onclick = () => {
   state.tts = !state.tts;
   document.getElementById("tts-btn").textContent = state.tts ? "🔊" : "🔇";
@@ -277,9 +325,18 @@ function parseCommand(raw) {
     return { type: "TIMER", seconds: sec || 60 };
   }
 
-  if (hasWord(text, ["note","notes"]) || /\byaad\s+(?:rakho|rakh|dharak|dharo)\b/.test(text)) {
+  if (hasWord(text, ["what do you remember","yaad kya hai","meri memory","memory dikhao","kya yaad hai","memory batao"])) {
+    return { type: "MEMORY_LIST", query: (text.match(/\b(?:about|baare\s+mein)\s+(.+)$/) || [])[1] || "" };
+  }
+  const memMatch = text.match(/\b(?:remember(?:\s+that)?|yaad\s+(?:rakho|rakh|dharak|dharo))\s*:?\s*(.+)$/);
+  if (memMatch) {
+    const fact = memMatch[1].trim().replace(/[.?!,]+$/, "");
+    if (fact) return { type: "MEMORY_ADD", text: fact };
+  }
+
+  if (hasWord(text, ["note","notes"])) {
     if (["dikha","dikhao","list","kaunsi","sab","all"].some(w => text.includes(w))) return { type: "NOTE_LIST" };
-    const m = text.match(/\b(?:add\s+note|note\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo)|remember|yaad\s+(?:rakho|rakh|dharak|dharo))\s*:?\s*(.+)$/);
+    const m = text.match(/\b(?:add\s+note|note\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo))\s*:?\s*(.+)$/);
     const noteText = m ? m[1].trim().replace(/[.?!,]+$/, "") : "";
     return noteText ? { type: "NOTE_ADD", text: noteText } : { type: "NOTE_LIST" };
   }
@@ -308,6 +365,19 @@ function parseCommand(raw) {
   if ((hasWord(text, ["device","phone","mobile","handset"]) && hasWord(text, ["info","information","details","kya hai","about","spec"]))
       || ["about phone","device info","phone info","mobile info"].some(w => text.includes(w)))
     return { type: "DEVICE_INFO" };
+
+  if (hasWord(text, ["screen dikhao","screen dikha","screen batao","screen kya hai","kya dikha raha hai","kya dikh raha hai","kya dikhta hai","what is on the screen","screen par kya hai","screen dump","screen padho"]))
+    return { type: "SCREEN_DUMP", query: (text.match(/\b(?:mein|me|par|about|ke\s+baare\s+mein)\s+(.+)$/) || [])[1] || "" };
+  const tapMatch = text.match(/^(?:tap\s+(?:on\s+)?|click\s+(?:on\s+)?|touch\s+(?:on\s+)?|daba\s*:?\s*|dabao\s+|daba\s+do)\s*(.+)$/);
+  if (tapMatch) {
+    const t = tapMatch[1].trim().replace(/[.?!]+$/, "");
+    if (t) return { type: "TAP", target: t };
+  }
+  const tapHindi = text.match(/^(.+?)\s+par\s+(?:click|tap|dabao|daba)\w*\s*(?:karo|kar|do)?$/);
+  if (tapHindi) {
+    const t = tapHindi[1].trim();
+    if (t) return { type: "TAP", target: t };
+  }
 
   if (hasWord(text, ["weather","mausam","temperature","garmi","baarish","barish","thand","thanda"]))
     return { type: "WEATHER", city: extractCity(text) };
@@ -433,7 +503,9 @@ function executeLocal(intent) {
     case "JOKE": return JOKES[Math.floor(Math.random() * JOKES.length)];
     case "BATTERY": { const b = batteryText(); return b; }
     case "DEVICE_INFO": return `Browser: ${navigator.userAgent.split(") ")[0]}). Screen ${screen.width}x${screen.height}.`;
-    case "FLASHLIGHT": return "Flashlight phone ke paas hoti hai — Android app mein 'Flashlight on' boliyech. Yahan sirf web hai.";
+    case "FLASHLIGHT": return "Flashlight phone ke paas hoti hai — Android app mein 'Flashlight on' boliye. Yahan sirf web hai.";
+    case "SCREEN_DUMP": return "Browser mein screen automation nahi hai — yeh Android app ka feature hai. Wahan 'screen dikhao' boliye.";
+    case "TAP": return `Web par '${intent.target}' par click nahi kar sakta — Android app mein 'tap on ${intent.target}' boliye.`;
     case "ALARM": return `Alarm ${intent.hour}:${String(intent.minute).padStart(2, "0")} — yeh phone app mein set hoga. Web par sirf samaay dikha sakta hoon: ${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.`;
     case "TIMER": return `${Math.round(intent.seconds / 60) || 1} minute ka timer — phone app mein set kar dijiye.`;
     case "OPEN_APP": return `'${intent.query}' kholna phone app ka kaam hai. Web par main search dikha sakta hoon.`;
@@ -451,6 +523,19 @@ function executeLocal(intent) {
       const notes = loadNotes();
       if (!notes.length) return "Abhi koi note nahi hai. 'Note karo: ...' likhiye.";
       return "Aapki notes:\n" + notes.slice(0, 8).map(n => `• ${n.text} (${n.time})`).join("\n");
+    }
+    case "MEMORY_ADD": {
+      const all = JSON.parse(localStorage.getItem("jarvis_memory") || "[]");
+      all.unshift(intent.text);
+      localStorage.setItem("jarvis_memory", JSON.stringify(all.slice(0, 200)));
+      return `Yaad rakh liya: "${intent.text}"`;
+    }
+    case "MEMORY_LIST": {
+      const all = JSON.parse(localStorage.getItem("jarvis_memory") || "[]");
+      const q = (intent.query || "").toLowerCase();
+      const facts = q ? all.filter(f => f.toLowerCase().includes(q)) : all;
+      if (!facts.length) return "Abhi kuch yaad nahi hai. 'Remember that ...' likhiye.";
+      return "Mujhe yaad hai:\n" + facts.slice(0, 8).map(f => `• ${f}`).join("\n");
     }
     default: return null;
   }

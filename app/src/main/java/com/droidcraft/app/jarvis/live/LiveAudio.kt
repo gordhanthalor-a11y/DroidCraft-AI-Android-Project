@@ -19,7 +19,7 @@ object LiveAudio {
 
     const val SAMPLE_RATE_IN = 16000
     const val SAMPLE_RATE_OUT = 24000
-    private const val CHUNK_BYTES = 1280 // 40ms @ 16kHz mono 16-bit
+    const val CHUNK_BYTES = 1280 // 40ms @ 16kHz mono 16-bit
 }
 
 /** Microphone se 16kHz PCM chunks padhta hai. */
