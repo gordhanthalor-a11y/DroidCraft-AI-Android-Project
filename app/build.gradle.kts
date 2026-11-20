@@ -5,22 +5,9 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val fixedSigningStoreFile = System.getenv("ANDROID_SIGNING_KEYSTORE_FILE")
-val fixedSigningStorePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
-val fixedSigningKeyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
-val fixedSigningKeyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
-val fixedSigningConfigured = listOf(
-    fixedSigningStoreFile,
-    fixedSigningStorePassword,
-    fixedSigningKeyAlias,
-    fixedSigningKeyPassword
-).all { !it.isNullOrBlank() }
-
-if (System.getenv("CI") == "true" && !fixedSigningConfigured) {
-    throw GradleException(
-        "CI builds must use the fixed signing keystore. Configure the ANDROID_SIGNING_* GitHub Actions secrets."
-    )
-}
+// Fixed debug identity for personal sideloaded builds; keep this key stable across CI builds.
+val droidcraftDebugSigningPassword = "DroidCraftDebugKey2026"
+val droidcraftDebugSigningAlias = "droidcraft"
 
 android {
     namespace = "com.droidcraft.app"
@@ -37,22 +24,18 @@ android {
     }
 
     signingConfigs {
-        if (fixedSigningConfigured) {
-            create("fixed") {
-                storeFile = file(requireNotNull(fixedSigningStoreFile))
-                storePassword = requireNotNull(fixedSigningStorePassword)
-                keyAlias = requireNotNull(fixedSigningKeyAlias)
-                keyPassword = requireNotNull(fixedSigningKeyPassword)
-                storeType = "PKCS12"
-            }
+        create("droidcraftDebug") {
+            storeFile = rootProject.file("keystore/droidcraft-debug.keystore")
+            storePassword = droidcraftDebugSigningPassword
+            keyAlias = droidcraftDebugSigningAlias
+            keyPassword = droidcraftDebugSigningPassword
+            storeType = "PKCS12"
         }
     }
 
     buildTypes {
         getByName("debug") {
-            if (fixedSigningConfigured) {
-                signingConfig = signingConfigs.getByName("fixed")
-            }
+            signingConfig = signingConfigs.getByName("droidcraftDebug")
         }
         getByName("release") {
             isMinifyEnabled = true
@@ -60,9 +43,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (fixedSigningConfigured) {
-                signingConfig = signingConfigs.getByName("fixed")
-            }
         }
     }
 
