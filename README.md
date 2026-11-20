@@ -8,6 +8,7 @@ A professional Android app (Kotlin, Jetpack Compose, Material 3, MVVM) that acts
 - **Hey Jarvis**: Background wake-word foreground service — bolte hi sunna shuru.
 - **Contacts & Memory**: Naam se call/SMS (papa, mummy...), Room-backed yaadein (`remember that ...`).
 - **Screen Automation**: Accessibility service se screen padho (`screen dikhao`) aur text par click (`tap on WhatsApp`).
+- **Jarvis Social (Buffer-जैसा)**: 100 videos एक साथ queue करो, AI captions (हर platform के लिए अलग), exact time पर **auto publish** YouTube (Shorts+Long), Instagram Reels, Facebook Page। Official APIs (YouTube Data API v3, Instagram/Facebook Graph API), OAuth login, Room v3 queue, WorkManager exact alarms, retry/backoff, quota guard, dashboard। App बंद होने पर भी publishing चाहिए तो `server/` (Python relay) deploy करो।
 - **Bilingual AI Assistant**: Hindi & English voice/text natural-language command understanding with modular action execution.
 - **8-Stage Pipeline**: Ideas -> Scripts -> Generation -> Quality Check -> Ready to Upload -> Scheduled -> Published -> Failed.
 - **Creator Approval Gate**: Holds videos in *Ready to Upload* by default; requires explicit creator approval before publishing.
