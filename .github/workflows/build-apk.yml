@@ -42,9 +42,13 @@ jobs:
         shell: bash
         run: |
           if [[ -f build.log ]]; then
-            grep -E '^e: |^.*error:|^FAILURE:|^\* What went wrong:' build.log | tail -n 80 | while IFS= read -r message; do
-              echo "::error::$message"
-            done
+            details="$(awk '/^\* What went wrong:/{capture=1} capture{print} /^BUILD FAILED/{if (capture) exit}' build.log)"
+            if [[ -z "$details" ]]; then
+              details="$(tail -n 60 build.log)"
+            fi
+            while IFS= read -r message; do
+              [[ -z "$message" ]] || echo "::error::$message"
+            done <<< "$details"
           fi
 
       - name: Upload Gradle build log
