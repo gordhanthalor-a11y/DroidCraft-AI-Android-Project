@@ -73,3 +73,17 @@ Web Speech API se voice input/output + same commands.
 - `jarvis/live/GeminiLiveClient.kt` + `LiveAudio.kt` — Gemini Live WebSocket + 16k/24k PCM
 - `jarvis/JarvisViewModel.kt` — state, TTS, chat, live session
 - `ui/JarvisScreen.kt` — arc-reactor UI, waveform, chat
+
+## Creator Studio (Studio tab — Gowardhan के रोज़ के काम के हिसाब से)
+Bottom bar का **Studio** tab खोलो — 8 हिस्से:
+- **Awaaz Banao** — Hindi script → server TTS (Smallest AI / HeyGen) → MP3 play/save/share; speed + sentence-gaps।
+- **QC** — वीडियो चुनो → 1080×1920 / SAR 1:1 + DAR 9:16 / duration / audio / −14 LUFS की pass/fail list; credit line + upload-flow reminder।
+- **Dubbing** — link → transcript → Hindi script → server render → share।
+- **Clipper** — stream link → 1080×1920 clips (facecam top + gameplay below, credit chip), parts में।
+- **Script** — topic → Gemini Hindi script (hook 2s, source facts)।
+- **Thumbnail** — photo पर पीला bold text, 9:16, नीचे-बाएँ खाली।
+- **Channels** — 7 channels के Studio links + Content Rewards campaign tracker।
+- **Daily** — job applications + Hindi notes।
+
+Jarvis voice: `awaaz banao` / `voice studio` → Voice Studio; `upload check` / `qc karo` → Upload QC।
+Server deploy: `server/SERVER_DEPLOY.md` (Render / Railway)।

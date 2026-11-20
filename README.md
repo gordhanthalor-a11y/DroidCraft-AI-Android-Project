@@ -9,6 +9,15 @@ A professional Android app (Kotlin, Jetpack Compose, Material 3, MVVM) that acts
 - **Contacts & Memory**: Naam se call/SMS (papa, mummy...), Room-backed yaadein (`remember that ...`).
 - **Screen Automation**: Accessibility service se screen padho (`screen dikhao`) aur text par click (`tap on WhatsApp`).
 - **Jarvis Social (Buffer-जैसा)**: 100 videos एक साथ queue करो, AI captions (हर platform के लिए अलग), exact time पर **auto publish** YouTube (Shorts+Long), Instagram Reels, Facebook Page। Official APIs (YouTube Data API v3, Instagram/Facebook Graph API), OAuth login, Room v3 queue, WorkManager exact alarms, retry/backoff, quota guard, dashboard। App बंद होने पर भी publishing चाहिए तो `server/` (Python relay) deploy करो।
+- **Creator Studio (Gowardhan के रोज़ के काम के हिसाब से)** — नया **Studio** tab, 8 हिस्से:
+  - **Awaaz Banao (Voice Studio)**: Hindi script (Devanagari) → server TTS (Smallest AI / HeyGen) → MP3 play/save/share। Speed control + sentence-by-sentence gaps।
+  - **Upload QC**: वीडियो चुनो → pass/fail list (1080×1920, **SAR 1:1 + DAR 9:16**, duration, audio, −14 LUFS loudness) — वही ज़िद जो पुरानी 16:9-flag वाली file पर Shorts रोकती थी। Title/description templates + creator-credit line + Unlisted→checks→Short verify→Public reminder।
+  - **Dubbing**: link → server transcript → Hindi script edit → voice render → download/share।
+  - **Clipper**: stream link → server clips (1080×1920, facecam top + gameplay below, captions + credit chip), long streams parts में।
+  - **Script Writer**: topic → Gemini Hindi script (hook पहले 2s, greeting नहीं, source facts)।
+  - **Thumbnail Text**: photo पर बड़ा पीला text (काली outline), 9:16, नीचे-बाएँ कोना खाली।
+  - **Channels + Campaigns**: 7 channels (GT Marwadi Vlogs…) के Studio quick-links; Content Rewards tracker (rate/deadline/clips/status)।
+  - **Daily**: job applications + Hindi notes/reminders।
 - **Bilingual AI Assistant**: Hindi & English voice/text natural-language command understanding with modular action execution.
 - **8-Stage Pipeline**: Ideas -> Scripts -> Generation -> Quality Check -> Ready to Upload -> Scheduled -> Published -> Failed.
 - **Creator Approval Gate**: Holds videos in *Ready to Upload* by default; requires explicit creator approval before publishing.
