@@ -9,6 +9,7 @@ import android.provider.AlarmClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
+import com.droidcraft.app.jarvis.apps.AppAutomation
 import com.droidcraft.app.jarvis.contacts.ContactResolver
 import com.droidcraft.app.jarvis.memory.MemoryManager
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +70,11 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.NOTE_LIST -> listNotes()
             JarvisIntentType.SCREEN_DUMP -> screenDump(intent.args["query"].orEmpty())
             JarvisIntentType.TAP -> tapOn(intent.args["target"].orEmpty())
+            JarvisIntentType.AUTOMATE -> AppAutomation.run(
+                context,
+                intent.args["target"].orEmpty(),
+                intent.args["query"].orEmpty()
+            )
             JarvisIntentType.MEMORY_ADD -> remember(intent.args["text"].orEmpty())
             JarvisIntentType.MEMORY_LIST -> recall(intent.args["query"].orEmpty())
             JarvisIntentType.WEATHER -> withContext(Dispatchers.IO) { weather(intent.args["city"].orEmpty()) }

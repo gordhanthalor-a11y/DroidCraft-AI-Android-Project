@@ -63,6 +63,39 @@ class JarvisAccessibilityService : AccessibilityService() {
         return null
     }
 
+    /** Editable field mein text bharo (ACTION_SET_TEXT). */
+    fun typeText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val field = findEditable(root, 0) ?: return false
+        val args = android.os.Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return runCatching { field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)
+    }
+
+    /** Search box mein text bharo (automation helper). */
+    fun sendKeys(text: String): Boolean = typeText(text)
+
+    /** App launch karo (accessibility service ke paas package manager access hota hai). */
+    fun launchApp(context: android.content.Context, pkg: String): Boolean {
+        return runCatching {
+            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                ?: return false
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun findEditable(node: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
+        if (node == null || depth > 40) return null
+        if (node.isEditable && node.className?.contains("EditText") == true) return node
+        for (i in 0 until node.childCount) {
+            findEditable(node.getChild(i), depth + 1)?.let { return it }
+        }
+        return null
+    }
+
     /** Pehle khud click karo, na ho to parent ko clickable tak le jao. */
     private fun clickNode(node: AccessibilityNodeInfo): Boolean {
         var current: AccessibilityNodeInfo? = node

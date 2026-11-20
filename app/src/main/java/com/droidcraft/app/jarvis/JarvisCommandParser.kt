@@ -97,6 +97,23 @@ object JarvisCommandParser {
             return JarvisIntent(JarvisIntentType.DEVICE_INFO)
         }
 
+        // ---------- App automation (WhatsApp / YouTube) ----------
+        val waMatch = Regex("\\bwhatsapp\\s+(?:par\\s+)?(.+)$").find(text)
+        if (waMatch != null) {
+            val q = waMatch.groupValues[1].trim()
+            val target = extractTarget(q).ifBlank { extractFirstPhrase(q) }
+            if (target.isNotBlank()) {
+                return JarvisIntent(JarvisIntentType.AUTOMATE, mapOf("target" to target, "query" to q))
+            }
+        }
+        val ytMatch = Regex("\\byoutube\\s+(?:par\\s+)?(.+)$").find(text)
+        if (ytMatch != null) {
+            val q = ytMatch.groupValues[1].trim()
+            if (q.isNotBlank()) {
+                return JarvisIntent(JarvisIntentType.AUTOMATE, mapOf("target" to extractFirstPhrase(q), "query" to q))
+            }
+        }
+
         // ---------- Screen automation (accessibility) ----------
         if (hasWord(text, "screen dikhao", "screen dikha", "screen batao", "screen kya hai",
                 "kya dikha raha hai", "kya dikh raha hai", "kya dikhta hai", "what is on the screen",
@@ -242,6 +259,15 @@ object JarvisCommandParser {
             ?.replace(Regex("\\s+"), " ")
             ?.trim()
             .orEmpty()
+
+    /** "message rahul ko aa jao" jaise phrase se sirf subject/naam nikalta hai. */
+    private fun extractFirstPhrase(text: String): String = text
+        .replace(Regex("^(?:ko|to|on|par)\\b"), "")
+        .replace(Regex("\\b(?:ko|to|on|par)\\b"), " ")
+        .replace(Regex("[?.!,]"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(40)
 
     private fun extractMemoryQuery(text: String): String =
         Regex("\\b(?:about|baare\\s+mein)\\s+(.+)$").find(text)?.groupValues?.get(1)?.trim().orEmpty()

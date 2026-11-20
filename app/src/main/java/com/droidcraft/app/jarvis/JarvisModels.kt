@@ -22,6 +22,7 @@ enum class JarvisIntentType {
     DEVICE_INFO,
     SCREEN_DUMP,
     TAP,
+    AUTOMATE,
     MEMORY,
     JOKE,
     GREETING,
