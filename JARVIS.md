@@ -107,3 +107,19 @@ Jarvis स्क्रीन के ऊपर **🎙️ (RecordVoiceOver) icon**
 
 **Smart mode**: रोज़ की बात = free phone voice; मज़बूत भावना (खुशी/दुख/हिम्मत) = ElevenLabs।
 **क्रेडिट खत्म हों तो** ElevenLabs अपने आप block होकर फ़ोन वॉइस चली जाती है; क्रेडिट वापस आने पर खुद ElevenLabs। Jarvis कभी चुप नहीं होगा।
+
+### 🔑 ElevenLabs key कहाँ डालें
+Voice Settings (🎙️) → **ElevenLabs API key** बॉक्स। Key अप करने के बाद:
+- App उसे **encrypted TokenVault** में रखता है और हर TTS अनुरोध के साथ `X-ElevenLabs-Key` header से अपने server पर भेजता है।
+- Server (`server/tts.py`) उसी key से ElevenLabs को बोलता है। Server पर `ELEVENLABS_API_KEY` env भी रख सकते हैं (app की key उसे override करती है)।
+- Key repo में कहीं hardcoded नहीं है — बिल्कुल golden rule के अनुसार।
+
+### आवाज़ें (नाम से चुनो)
+Voice Settings → "आवाज़ चुनो" में:
+| नाम | ID |
+|---|---|
+| Bunty - Funny Best Friend (default) | `7b9mYhmnp0y2qSH1FnBL` |
+| Baby | `mg9npuuaf8WJphS6E0Rt` |
+| Rachel / Bella / Domi | ElevenLabs stock |
+
+नई आवाज़ जोड़नी हो तो `VoiceSettings.VOICES` लिस्ट में एक पंक्ति जोड़ो (`id` + नाम) — UI अपने आप दिखा देगा।
