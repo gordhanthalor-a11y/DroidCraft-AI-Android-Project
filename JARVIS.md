@@ -40,6 +40,14 @@ voice assistant jo Hindi, Hinglish aur English, teenon mein baat karta hai.
 - **Accessibility** — header ka 🧩 icon → "Jarvis Automation" ON → `screen dikhao` / `tap on X`.
 - **Notifications** — 🎧 "Hey Jarvis" background listening ke liye.
 
+## Jarvis Social (Buffer-जैसा auto publishing)
+Bottom bar का **Social** tab खोलो।
+- `100 videos schedule karo` / `social dashboard kholo` — Jarvis ही Social Hub खोलेगा।
+- **Connect Account** → YouTube/Instagram का official OAuth (Client ID/Secret SOCIAL_SETUP.md से)।
+- **Schedule** → videos चुनो (50-100 एक साथ) → time सेट करो → AI captions अपने आप।
+- Queue / History / Accounts tabs; Scheduled / Published / Failed counts।
+- पूरा architecture: `ARCHITECTURE.md` • setup: `SOCIAL_SETUP.md` • relay server: `server/`
+
 ## API key (optional)
 Device ke kaam **bina key ke** chalte hain. Baat-cheet aur creator tasks ke liye Gemini API key
 daaliye (⚙️ icon) — [aistudio.google.com/apikey](https://aistudio.google.com/apikey) se free milti hai.
