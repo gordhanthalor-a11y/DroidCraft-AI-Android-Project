@@ -9,13 +9,13 @@ import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
  */
 object AppAutomation {
 
+    private fun JarvisAccessibilityService.tapTextSafe(t: String): Boolean =
+        runCatching { tapText(t) }.getOrDefault(false)
+
     /** App package + kaam → automator. */
     fun run(context: Context, target: String, query: String): String {
         val service = JarvisAccessibilityService.instance
             ?: return "Pehle accessibility ON karo (header ka 🧩 icon)."
-
-        fun JarvisAccessibilityService.tapTextSafe(t: String): Boolean =
-            runCatching { tapText(t) }.getOrDefault(false)
 
         val what = query.trim().lowercase()
         val pkg = resolvePackage(what) ?: resolvePackage(target.lowercase())
