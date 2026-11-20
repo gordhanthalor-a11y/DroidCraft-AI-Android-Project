@@ -74,6 +74,12 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val _memories = MutableStateFlow<List<MemoryEntity>>(emptyList())
     val memories: StateFlow<List<MemoryEntity>> = _memories.asStateFlow()
 
+    private val _memoryLoading = MutableStateFlow(true)
+    val memoryLoading: StateFlow<Boolean> = _memoryLoading.asStateFlow()
+
+    private val _memoryNotice = MutableStateFlow("")
+    val memoryNotice: StateFlow<String> = _memoryNotice.asStateFlow()
+
     // ---------------- character / emotion / voice ----------------
     private val _emotion = MutableStateFlow(Emotion.NEUTRAL)
     val emotion: StateFlow<Emotion> = _emotion.asStateFlow()
@@ -87,7 +93,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         _notes.value = device.loadNotes()
-        viewModelScope.launch { _memories.value = memory.facts() }
+        refreshMemories()
         _messages.value = listOf(
             JarvisMessage(nextId(), greetingMessage(), isUser = false, kind = JarvisMessageKind.SYSTEM)
         )
@@ -386,18 +392,62 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         _notes.value = remaining
     }
 
+    fun refreshMemories() {
+        viewModelScope.launch {
+            _memoryLoading.value = true
+            _memoryNotice.value = ""
+            runCatching { memory.facts() }
+                .onSuccess { _memories.value = it }
+                .onFailure { _memoryNotice.value = "Memories could not load: ${it.message ?: "try again."}" }
+            _memoryLoading.value = false
+        }
+    }
+
+    fun saveMemory(id: Long?, key: String, value: String, category: String) {
+        viewModelScope.launch {
+            _memoryNotice.value = ""
+            runCatching {
+                require(value.isNotBlank()) { "Write a fact before saving." }
+                memory.save(id, key, value, category)
+                memory.facts()
+            }.onSuccess { updated ->
+                _memories.value = updated
+                _memoryNotice.value = if (id == null) "Memory saved." else "Memory updated."
+            }.onFailure {
+                _memoryNotice.value = "Could not save memory: ${it.message ?: "try again."}"
+            }
+        }
+    }
+
+    fun dismissMemoryNotice() {
+        _memoryNotice.value = ""
+    }
+
     fun forgetMemory(id: Long) {
         viewModelScope.launch {
-            memory.forget(id)
-            _memories.value = memory.facts()
+            runCatching {
+                memory.forget(id)
+                memory.facts()
+            }.onSuccess {
+                _memories.value = it
+                _memoryNotice.value = "Memory deleted."
+            }.onFailure {
+                _memoryNotice.value = "Could not delete memory: ${it.message ?: "try again."}"
+            }
         }
     }
 
     fun clearMemory() {
         viewModelScope.launch {
-            memory.clear()
-            _memories.value = emptyList()
-            appendBot("Saari yaadein mit gayi.")
+            runCatching { memory.clear() }
+                .onSuccess {
+                    _memories.value = emptyList()
+                    _memoryNotice.value = "All memories cleared."
+                    appendBot("Saari yaadein mit gayi.")
+                }
+                .onFailure {
+                    _memoryNotice.value = "Could not clear memories: ${it.message ?: "try again."}"
+                }
         }
     }
 

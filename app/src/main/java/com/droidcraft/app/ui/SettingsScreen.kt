@@ -12,14 +12,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +48,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.droidcraft.app.model.LiveVoiceMode
 import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
@@ -57,6 +66,9 @@ fun SettingsScreen(
     val modelOrder by viewModel.geminiModelOrder.collectAsState()
     val isRefreshingModels by viewModel.refreshingGeminiModels.collectAsState()
     val modelSettingsMessage by viewModel.geminiModelSettingsMessage.collectAsState()
+    val testingConnection by viewModel.testingGeminiConnection.collectAsState()
+    val connectionStatus by viewModel.geminiConnectionStatus.collectAsState()
+    val pingMs by viewModel.geminiPingMs.collectAsState()
     var modelOrderText by remember { mutableStateOf(modelOrder.joinToString(System.lineSeparator())) }
     var modelOrderError by remember { mutableStateOf("") }
     var studioServerUrl by remember { mutableStateOf(StudioSettings.serverUrl(context)) }
@@ -74,48 +86,65 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column {
-            Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("DROIDCRAFT · SYSTEM CONFIGURATION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(
-                "Manage Jarvis keys and live conversation voice.",
+                "Voice, model access, and connected services.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        ConnectionStatusCard(
+            hasGeminiKey = hasGeminiKey,
+            testing = testingConnection,
+            status = connectionStatus,
+            pingMs = pingMs,
+            onTest = viewModel::testGeminiConnection
+        )
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(20.dp)
+        ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Live Voice", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "Choose how Jarvis sounds during Live Talk.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                SettingsGroupHeader(
+                    icon = Icons.Default.GraphicEq,
+                    title = "Live voice",
+                    subtitle = "Choose the voice path used in Live Talk."
                 )
                 LiveVoiceMode.values().forEach { mode ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { viewModel.setLiveVoiceMode(mode) }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = selectedVoice == mode,
-                            onClick = { viewModel.setLiveVoiceMode(mode) }
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { viewModel.setLiveVoiceMode(mode) },
+                        shape = RoundedCornerShape(15.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (selectedVoice == mode) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface
                         )
-                        Column(modifier = Modifier.padding(start = 8.dp)) {
-                            Text(mode.title, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                mode.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedVoice == mode,
+                                onClick = { viewModel.setLiveVoiceMode(mode) }
                             )
-                            if (mode == LiveVoiceMode.ELEVENLABS) {
+                            Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+                                Text(mode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "Bunty · voice ID 7b9mYhmnp0y2qSH1FnBL",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    mode.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (mode == LiveVoiceMode.ELEVENLABS) {
+                                    Text(
+                                        "Bunty · expressive voice · Gemini remains the fallback",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
@@ -145,12 +174,25 @@ fun SettingsScreen(
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Gemini text model fallback order", style = MaterialTheme.typography.titleMedium)
+                SettingsGroupHeader(
+                    icon = Icons.Default.Settings,
+                    title = "Gemini text models",
+                    subtitle = "Ordered fallback choices used for Chat replies."
+                )
                 Text(
                     "Models are tried from top to bottom. A 503 is retried once after a short pause; 429 and 404 move to the next model automatically. Only after every listed model fails will Chat show an error. Use one model ID per line.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text("PREFERRED FIRST MODEL", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                modelOrder.forEachIndexed { index, modelId ->
+                    ModelChoiceCard(
+                        modelId = modelId,
+                        description = modelDescription(modelId, index),
+                        selected = modelOrder.firstOrNull() == modelId,
+                        onClick = { viewModel.selectPrimaryGeminiModel(modelId) }
+                    )
+                }
                 OutlinedTextField(
                     value = modelOrderText,
                     onValueChange = {
@@ -218,7 +260,11 @@ fun SettingsScreen(
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Creator Studio server", style = MaterialTheme.typography.titleMedium)
+                SettingsGroupHeader(
+                    icon = Icons.Default.Cloud,
+                    title = "Creator Studio server",
+                    subtitle = "Endpoint for voice, dubbing, clipper, and QC tools."
+                )
                 Text(
                     "Voice Studio, Dubbing, Clipper, and advanced QC need the deployed Python service. Enter its HTTPS base URL; localhost and emulator addresses will not work on a physical phone.",
                     style = MaterialTheme.typography.bodySmall,
@@ -278,6 +324,120 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun ModelChoiceCard(
+    modelId: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = selected, onClick = onClick)
+            Column(Modifier.padding(start = 8.dp, top = 7.dp, bottom = 7.dp)) {
+                Text(modelId, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+private fun modelDescription(modelId: String, index: Int): String = when (modelId) {
+    "gemini-3.1-flash-lite" -> "Recommended · fast, lightweight first choice"
+    "gemini-flash-lite-latest" -> "Latest Flash Lite alias · automatic fallback"
+    "gemini-3.8-flash" -> "Higher-capability Flash · fallback option"
+    "gemini-3-flash-preview" -> "Preview model · final default fallback"
+    else -> "Custom text model · fallback slot ${index + 1}"
+}
+
+@Composable
+private fun ConnectionStatusCard(
+    hasGeminiKey: Boolean,
+    testing: Boolean,
+    status: String,
+    pingMs: Long?,
+    onTest: () -> Unit
+) {
+    val isConnected = status.startsWith("Connected", ignoreCase = true)
+    val isError = status.startsWith("Connection failed", ignoreCase = true)
+    val statusColor = when {
+        isConnected -> MaterialTheme.colorScheme.secondary
+        isError -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingsGroupHeader(
+                icon = Icons.Default.Cloud,
+                title = "Gemini connection",
+                subtitle = "Test model access and measure a live response."
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(9.dp), color = statusColor.copy(alpha = .13f)) {
+                    Icon(Icons.Default.Speed, contentDescription = null, tint = statusColor, modifier = Modifier.padding(8.dp))
+                }
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(
+                        if (isConnected) "Connection ready" else if (isError) "Needs attention" else "Connection status",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = statusColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(status, style = MaterialTheme.typography.bodySmall, color = statusColor)
+                }
+                when {
+                    testing -> CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                    pingMs != null -> Text("PING · ${pingMs} ms", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+            }
+            Button(onClick = onTest, enabled = hasGeminiKey && !testing, modifier = Modifier.fillMaxWidth()) {
+                if (testing) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (testing) "Testing connection…" else "Test Connection")
+            }
+            Text(
+                if (hasGeminiKey) "Sends a brief test prompt using your configured Gemini fallback order; no API key is shown."
+                else "Save a Gemini API key below to enable the connection test.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsGroupHeader(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Surface(shape = RoundedCornerShape(11.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(9.dp))
+        }
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
 private fun ProviderKeyCard(
     title: String,
     description: String,
@@ -297,12 +457,16 @@ private fun ProviderKeyCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                SettingsGroupHeader(
+                    icon = if (title.contains("ElevenLabs", ignoreCase = true)) Icons.Default.GraphicEq else Icons.Default.Lock,
+                    title = title,
+                    subtitle = description,
+                    modifier = Modifier.weight(1f)
+                )
                 if (isSaved) {
-                    Text("Saved", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                    Text("SAVED", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (isSaved) {
                 Text(
                     "A key is saved securely. It is hidden and will not be shown again.",

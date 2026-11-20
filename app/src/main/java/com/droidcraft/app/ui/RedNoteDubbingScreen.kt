@@ -24,7 +24,7 @@ fun RedNoteDubbingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF020617))
+            .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
     ) {
         // RedNote Studio Header
@@ -36,7 +36,7 @@ fun RedNoteDubbingScreen(
         )
         Text(
             text = "9:16 Vertical Reels · Energetic Indian Creator Voice",
-            color = Color(0xFF94A3B8),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp
         )
 
@@ -47,12 +47,12 @@ fun RedNoteDubbingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(Color.Black, RoundedCornerShape(16.dp)),
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "9:16 Native Vertical Video Player\n(Active Ducking: ${audioDuckingDb.toInt()}dB)",
-                color = Color(0xFFCBD5E1),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp
             )
 
@@ -61,12 +61,12 @@ fun RedNoteDubbingScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 40.dp)
-                    .background(Color(0xCC000000), RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = .92f), RoundedCornerShape(24.dp))
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = if (textMode == "blur") "[Gaussian Blur Mask]" else "माइक्रो ड्रोन ₹240",
-                    color = Color(0xFFFCD34D),
+                    color = MaterialTheme.colorScheme.tertiary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp
                 )
@@ -83,7 +83,7 @@ fun RedNoteDubbingScreen(
             Button(
                 onClick = { textMode = "hindi_replace" },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (textMode == "hindi_replace") Color(0xFFDC2626) else Color(0xFF1E293B)
+                    containerColor = if (textMode == "hindi_replace") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
                 Text("Hindi Dark Pill")
@@ -92,7 +92,7 @@ fun RedNoteDubbingScreen(
             Button(
                 onClick = { textMode = "blur" },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (textMode == "blur") Color(0xFF2563EB) else Color(0xFF1E293B)
+                    containerColor = if (textMode == "blur") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
                 Text("Blur Mask")
@@ -105,7 +105,7 @@ fun RedNoteDubbingScreen(
         Button(
             onClick = onExportRequested,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Text("Export 1080x1920 MP4 to Android Device")
         }

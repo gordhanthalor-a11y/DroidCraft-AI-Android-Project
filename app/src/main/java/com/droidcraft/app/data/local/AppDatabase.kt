@@ -61,7 +61,8 @@ data class MemoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val key: String,
     val value: String,
-    val createdAt: Long
+    val createdAt: Long,
+    @ColumnInfo(defaultValue = "'Personal'") val category: String = "Personal"
 )
 
 @Dao
@@ -74,6 +75,9 @@ interface MemoryDao {
 
     @Query("SELECT * FROM jarvis_memory WHERE value LIKE '%' || :query || '%' ORDER BY id DESC")
     suspend fun search(query: String): List<MemoryEntity>
+
+    @Query("UPDATE jarvis_memory SET `key` = :key, `value` = :value, category = :category WHERE id = :id")
+    suspend fun update(id: Long, key: String, value: String, category: String)
 
     @Query("DELETE FROM jarvis_memory WHERE id = :id")
     suspend fun delete(id: Long)
@@ -94,7 +98,7 @@ interface MemoryDao {
         JobApplicationEntity::class,
         HindiNoteEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -206,6 +210,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `jarvis_memory` ADD COLUMN `category` TEXT NOT NULL DEFAULT 'Personal'")
+                db.execSQL(
+                    "UPDATE `jarvis_memory` SET `category` = 'Preferences' WHERE " +
+                        "lower(`value`) LIKE '%prefer%' OR lower(`value`) LIKE '%favorite%' OR " +
+                        "lower(`value`) LIKE '%favourite%' OR lower(`value`) LIKE '%pasand%'"
+                )
+                db.execSQL(
+                    "UPDATE `jarvis_memory` SET `category` = 'Contacts' WHERE " +
+                        "lower(`value`) LIKE '%phone%' OR lower(`value`) LIKE '%contact%' OR " +
+                        "lower(`value`) LIKE '%wife%' OR lower(`value`) LIKE '%husband%' OR " +
+                        "lower(`value`) LIKE '%mother%' OR lower(`value`) LIKE '%father%' OR " +
+                        "lower(`value`) LIKE '%email%'"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -213,7 +235,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "droidcraft_youtube_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }

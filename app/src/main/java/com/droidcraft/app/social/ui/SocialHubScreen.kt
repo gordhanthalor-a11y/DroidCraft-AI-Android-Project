@@ -74,15 +74,15 @@ fun SocialHubScreen() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("Jarvis Social", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7DF9FF))
-                Text("Buffer-जैसा auto publishing", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                Text("Jarvis Social", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF56EFF7))
+                Text("Buffer-जैसा auto publishing", fontSize = 12.sp, color = Color(0xFFA3BAC6))
             }
             Row {
                 IconButton(onClick = { showConnect = true }) {
-                    Icon(Icons.Default.Link, contentDescription = "Connect", tint = Color(0xFF7DF9FF))
+                    Icon(Icons.Default.Link, contentDescription = "Connect", tint = Color(0xFF56EFF7))
                 }
                 IconButton(onClick = { showSchedule = true }) {
-                    Icon(Icons.Default.Schedule, contentDescription = "Schedule", tint = Color(0xFF7DF9FF))
+                    Icon(Icons.Default.Schedule, contentDescription = "Schedule", tint = Color(0xFF56EFF7))
                 }
             }
         }
@@ -94,18 +94,18 @@ fun SocialHubScreen() {
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            StatCard("Scheduled", queued, Color(0xFF7DF9FF), Modifier.weight(1f))
-            StatCard("Published", published, Color(0xFF4ADE80), Modifier.weight(1f))
-            StatCard("Failed", failed, Color(0xFFF87171), Modifier.weight(1f))
+            StatCard("Scheduled", queued, Color(0xFF56EFF7), Modifier.weight(1f))
+            StatCard("Published", published, Color(0xFF48E1C2), Modifier.weight(1f))
+            StatCard("Failed", failed, Color(0xFFFF7183), Modifier.weight(1f))
         }
 
         Spacer(Modifier.height(8.dp))
 
         // Tabs
-        TabRow(selectedTabIndex = tab, containerColor = Color(0xFF0B1220)) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Queue", color = Color(0xFFCBD5E1)) })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("History", color = Color(0xFFCBD5E1)) })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Accounts", color = Color(0xFFCBD5E1)) })
+        TabRow(selectedTabIndex = tab, containerColor = Color(0xFF050B15)) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Queue", color = Color(0xFFA3BAC6)) })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("History", color = Color(0xFFA3BAC6)) })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Accounts", color = Color(0xFFA3BAC6)) })
         }
 
         when (tab) {
@@ -145,7 +145,7 @@ private fun StatCard(label: String, value: Int, color: Color, modifier: Modifier
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("$value", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color)
-            Text(label, fontSize = 11.sp, color = Color(0xFF94A3B8))
+            Text(label, fontSize = 11.sp, color = Color(0xFFA3BAC6))
         }
     }
 }
@@ -163,27 +163,27 @@ private fun QueueList(queue: List<com.droidcraft.app.social.data.PostQueueEntity
     ) {
         items(queue, key = { it.id }) { post ->
             val (label, color) = when (post.status) {
-                SocialStatus.QUEUED -> "⏳ Scheduled" to Color(0xFF7DF9FF)
-                SocialStatus.UPLOADING -> "⬆️ Uploading" to Color(0xFFFBBF24)
-                SocialStatus.PUBLISHED -> "✅ Published" to Color(0xFF4ADE80)
-                SocialStatus.FAILED -> "❌ Failed" to Color(0xFFF87171)
-                else -> post.status to Color(0xFF94A3B8)
+                SocialStatus.QUEUED -> "⏳ Scheduled" to Color(0xFF56EFF7)
+                SocialStatus.UPLOADING -> "⬆️ Uploading" to Color(0xFFE6B55A)
+                SocialStatus.PUBLISHED -> "✅ Published" to Color(0xFF48E1C2)
+                SocialStatus.FAILED -> "❌ Failed" to Color(0xFFFF7183)
+                else -> post.status to Color(0xFFA3BAC6)
             }
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF111A2E)
+                color = Color(0xFF0E2030)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text(post.title.ifBlank { "Video" }, fontWeight = FontWeight.SemiBold, color = Color(0xFFE2E8F0), fontSize = 14.sp)
+                    Text(post.title.ifBlank { "Video" }, fontWeight = FontWeight.SemiBold, color = Color(0xFFE7F5F8), fontSize = 14.sp)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "${post.platform} • ${java.text.SimpleDateFormat("dd MMM yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(post.scheduledAt))}" +
                             (if (post.isShort) " • Short" else ""),
-                        fontSize = 11.sp, color = Color(0xFF94A3B8)
+                        fontSize = 11.sp, color = Color(0xFFA3BAC6)
                     )
                     Text(label, fontSize = 12.sp, color = color)
                     post.lastError?.let {
-                        Text(it, fontSize = 10.sp, color = Color(0xFFF87171), maxLines = 2)
+                        Text(it, fontSize = 10.sp, color = Color(0xFFFF7183), maxLines = 2)
                     }
                 }
             }
@@ -210,15 +210,15 @@ private fun HistoryList(history: List<com.droidcraft.app.social.data.PublishHist
                 Text(
                     "${if (h.success) "✅" else "❌"} ${h.platform} • ${h.externalId ?: "—"}",
                     fontSize = 12.sp,
-                    color = if (h.success) Color(0xFF4ADE80) else Color(0xFFF87171)
+                    color = if (h.success) Color(0xFF48E1C2) else Color(0xFFFF7183)
                 )
                 Text(
                     java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(h.attemptAt)),
-                    fontSize = 10.sp, color = Color(0xFF64748B)
+                    fontSize = 10.sp, color = Color(0xFF7893A0)
                 )
             }
             h.errorMessage?.let {
-                Text(it, fontSize = 10.sp, color = Color(0xFFF87171), maxLines = 2)
+                Text(it, fontSize = 10.sp, color = Color(0xFFFF7183), maxLines = 2)
             }
         }
     }
@@ -239,7 +239,7 @@ private fun AccountsList(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(accounts, key = { it.id }) { acc ->
-            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -248,14 +248,14 @@ private fun AccountsList(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(acc.accountName, color = Color(0xFFE2E8F0), fontWeight = FontWeight.SemiBold)
+                        Text(acc.accountName, color = Color(0xFFE7F5F8), fontWeight = FontWeight.SemiBold)
                         Text(
                             "${acc.platform} • ${java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(acc.connectedAt))}",
-                            fontSize = 11.sp, color = Color(0xFF64748B)
+                            fontSize = 11.sp, color = Color(0xFF7893A0)
                         )
                     }
                     TextButton(onClick = { onDisconnect(acc.id) }) {
-                        Text("Disconnect", color = Color(0xFFF87171), fontSize = 12.sp)
+                        Text("Disconnect", color = Color(0xFFFF7183), fontSize = 12.sp)
                     }
                 }
             }
@@ -267,9 +267,9 @@ private fun AccountsList(
 private fun EmptyState(title: String, subtitle: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(title, color = Color(0xFFCBD5E1), fontWeight = FontWeight.SemiBold)
+            Text(title, color = Color(0xFFA3BAC6), fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            Text(subtitle, color = Color(0xFF64748B), fontSize = 12.sp)
+            Text(subtitle, color = Color(0xFF7893A0), fontSize = 12.sp)
         }
     }
 }
@@ -288,8 +288,8 @@ private fun ConnectAccountDialog(onDismiss: () -> Unit, onConnected: () -> Unit)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Connect Account", color = Color(0xFFE2E8F0)) },
-        containerColor = Color(0xFF0B1220),
+        title = { Text("Connect Account", color = Color(0xFFE7F5F8)) },
+        containerColor = Color(0xFF050B15),
         text = {
             Column {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -333,7 +333,7 @@ private fun ConnectAccountDialog(onDismiss: () -> Unit, onConnected: () -> Unit)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Credentials सिर्फ़ इसी device पर रहती हैं (encrypted). SOCIAL_SETUP.md देखो.",
-                    fontSize = 10.sp, color = Color(0xFF64748B)
+                    fontSize = 10.sp, color = Color(0xFF7893A0)
                 )
             }
         },
@@ -366,11 +366,11 @@ private fun ConnectAccountDialog(onDismiss: () -> Unit, onConnected: () -> Unit)
                 )
                 onConnected()
             }) {
-                Text("OAuth करो", color = Color(0xFF7DF9FF))
+                Text("OAuth करो", color = Color(0xFF56EFF7))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Band", color = Color(0xFF94A3B8)) }
+            TextButton(onClick = onDismiss) { Text("Band", color = Color(0xFFA3BAC6)) }
         }
     )
 }
@@ -401,14 +401,14 @@ private fun ScheduleVideosDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Schedule Videos", color = Color(0xFFE2E8F0)) },
-        containerColor = Color(0xFF0B1220),
+        title = { Text("Schedule Videos", color = Color(0xFFE7F5F8)) },
+        containerColor = Color(0xFF050B15),
         text = {
             Column {
-                Text("Videos चुनो (gallery), फिर date/time सेट करो।", fontSize = 13.sp, color = Color(0xFFCBD5E1))
+                Text("Videos चुनो (gallery), फिर date/time सेट करो।", fontSize = 13.sp, color = Color(0xFFA3BAC6))
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { picker.launch("video/*") }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = Color(0xFF7DF9FF))
+                    Icon(Icons.Default.VideoLibrary, contentDescription = null, tint = Color(0xFF56EFF7))
                     Spacer(Modifier.width(8.dp))
                     Text("Video चुनो")
                 }
@@ -430,7 +430,7 @@ private fun ScheduleVideosDialog(onDismiss: () -> Unit) {
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "${picked.size} videos तैयार — ${connected.size} platform(s) connected",
-                        fontSize = 12.sp, color = Color(0xFF7DF9FF)
+                        fontSize = 12.sp, color = Color(0xFF56EFF7)
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -458,19 +458,19 @@ private fun ScheduleVideosDialog(onDismiss: () -> Unit) {
                     }
                     Text(
                         "AI captions अपने आप बनेंगी, exact time पर publish होगा।",
-                        fontSize = 10.sp, color = Color(0xFF64748B)
+                        fontSize = 10.sp, color = Color(0xFF7893A0)
                     )
                 } else {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "50-100 videos एक साथ चुन सकते हो। Connected platforms: ${connected.joinToString(", ").ifBlank { "कोई नहीं — Accounts tab से जोड़ो" }}",
-                        fontSize = 11.sp, color = Color(0xFF64748B)
+                        fontSize = 11.sp, color = Color(0xFF7893A0)
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("ठीक", color = Color(0xFF7DF9FF)) }
+            TextButton(onClick = onDismiss) { Text("ठीक", color = Color(0xFF56EFF7)) }
         }
     )
 }

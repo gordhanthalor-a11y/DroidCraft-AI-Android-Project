@@ -29,12 +29,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
 
-private val Cyan = Color(0xFF7DF9FF)
-private val Slate = Color(0xFF94A3B8)
-private val Light = Color(0xFFE2E8F0)
-private val Green = Color(0xFF4ADE80)
-private val Red = Color(0xFFF87171)
-private val Dark = Color(0xFF0B1220)
+private val Cyan = Color(0xFF56EFF7)
+private val Slate = Color(0xFFA3BAC6)
+private val Light = Color(0xFFE7F5F8)
+private val Green = Color(0xFF48E1C2)
+private val Red = Color(0xFFFF7183)
+private val Dark = Color(0xFF050B15)
 
 /**
  * B1 — Voice Studio: Hindi script → server TTS → MP3 (play/save/share)।
@@ -95,7 +95,7 @@ fun VoiceStudioScreen() {
         }
 
         if (showSettings) {
-            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = serverUrl, onValueChange = { serverUrl = it },
@@ -327,7 +327,7 @@ fun VoiceStudioScreen() {
 
         // playback
         audioFile?.let { f ->
-            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(f.name, fontSize = 12.sp, color = Light, fontWeight = FontWeight.SemiBold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

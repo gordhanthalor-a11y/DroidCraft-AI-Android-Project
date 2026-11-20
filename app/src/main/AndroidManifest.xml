@@ -9,6 +9,8 @@
     
     <!-- AI Voice Input Permission -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Requested only when the user enables location-based HUD weather -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Jarvis Flashlight (torch) ke liye -->
     <uses-permission android:name="android.permission.CAMERA" />

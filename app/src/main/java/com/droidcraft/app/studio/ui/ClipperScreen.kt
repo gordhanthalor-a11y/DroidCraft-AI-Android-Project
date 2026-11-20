@@ -19,11 +19,11 @@ import com.droidcraft.app.studio.StudioClient
 import kotlinx.coroutines.launch
 import java.io.File
 
-private val Cyan = Color(0xFF7DF9FF)
-private val Slate = Color(0xFF94A3B8)
-private val Light = Color(0xFFE2E8F0)
-private val Green = Color(0xFF4ADE80)
-private val Red = Color(0xFFF87171)
+private val Cyan = Color(0xFF56EFF7)
+private val Slate = Color(0xFFA3BAC6)
+private val Light = Color(0xFFE7F5F8)
+private val Green = Color(0xFF48E1C2)
+private val Red = Color(0xFFFF7183)
 
 /**
  * B4 — Clipper: source link → server crops 9:16 vertical clips and overlays the creator credit.
@@ -111,7 +111,7 @@ fun ClipperScreen() {
 
         clipList.forEach { (index, path) ->
             var downloaded by remember { mutableStateOf<File?>(null) }
-            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,

@@ -23,12 +23,12 @@ import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.studio.qc.VideoQc
 import kotlinx.coroutines.launch
 
-private val Cyan = Color(0xFF7DF9FF)
-private val Slate = Color(0xFF94A3B8)
-private val Light = Color(0xFFE2E8F0)
-private val Green = Color(0xFF4ADE80)
-private val Red = Color(0xFFF87171)
-private val Amber = Color(0xFFFBBF24)
+private val Cyan = Color(0xFF56EFF7)
+private val Slate = Color(0xFFA3BAC6)
+private val Light = Color(0xFFE7F5F8)
+private val Green = Color(0xFF48E1C2)
+private val Red = Color(0xFFFF7183)
+private val Amber = Color(0xFFE6B55A)
 
 /**
  * B2 — Upload Helper with QC: वीडियो चुनो → pass/fail list → templates → upload reminder।
@@ -93,7 +93,7 @@ fun UploadHelperScreen() {
             }
 
             r.checks.forEach { c ->
-                Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+                Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (c.pass) "✅" else "❌", fontSize = 14.sp)
@@ -109,7 +109,7 @@ fun UploadHelperScreen() {
             }
 
             // privacy note (YouTube private video का जवाब)
-            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("🔒 Private वीडियो का जवाब", color = Cyan, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     Text(
@@ -142,7 +142,7 @@ fun UploadHelperScreen() {
             .replace("{topic}", topic.ifBlank { "…" })
             .replace("{credit}", credit)
 
-        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF111A2E)) {
+        Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF0E2030)) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Title:", color = Slate, fontSize = 11.sp)
                 Text(titleT, color = Light, fontSize = 13.sp)
@@ -160,7 +160,7 @@ fun UploadHelperScreen() {
             "3. जाँचो कि Short बन गया (9:16 badge)",
             "4. फिर YouTube Studio से **Public** करो"
         ).forEach { step ->
-            Surface(shape = RoundedCornerShape(10.dp), color = Color(0xFF111A2E)) {
+            Surface(shape = RoundedCornerShape(10.dp), color = Color(0xFF0E2030)) {
                 Text(step, modifier = Modifier.padding(10.dp), color = Light, fontSize = 12.sp)
             }
         }

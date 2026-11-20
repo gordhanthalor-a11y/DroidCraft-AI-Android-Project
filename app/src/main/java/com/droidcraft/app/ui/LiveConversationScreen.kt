@@ -1,6 +1,7 @@
 package com.droidcraft.app.ui
 
 import android.Manifest
+import androidx.compose.animation.AnimatedVisibility
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -156,9 +158,33 @@ fun LiveConversationScreen(
             }
         }
 
+        AnimatedVisibility(visible = isActive) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Text(
+                    when (status) {
+                        LiveConversationStatus.CONNECTING -> "Opening a secure session…"
+                        LiveConversationStatus.LISTENING -> "Voice link active · listening for your next turn"
+                        LiveConversationStatus.SPEAKING -> "Voice link active · Jarvis is responding"
+                        else -> ""
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         if (notice != null) {
             Spacer(Modifier.height(8.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            val errorNotice = status == LiveConversationStatus.ERROR
+            Card(colors = CardDefaults.cardColors(
+                containerColor = if (errorNotice) MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.secondaryContainer
+            )) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -166,13 +192,14 @@ fun LiveConversationScreen(
                     Text(
                         text = notice.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = if (errorNotice) MaterialTheme.colorScheme.onErrorContainer
+                        else MaterialTheme.colorScheme.onSecondaryContainer
                     )
                     if (status == LiveConversationStatus.ERROR) {
                         Text(
                             "Fallback: text or voice input → Gemini text reply → phone TTS voice reply.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            color = MaterialTheme.colorScheme.onErrorContainer
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(onClick = { viewModel.startLiveConversation() }) { Text("Retry Live Talk") }

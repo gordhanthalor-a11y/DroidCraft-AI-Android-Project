@@ -1,7 +1,12 @@
 package com.droidcraft.app.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.location.Geocoder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -15,7 +20,14 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +39,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +53,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,11 +69,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,10 +86,17 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.droidcraft.app.jarvis.HudWeatherRepository
 import com.droidcraft.app.jarvis.JarvisMessage
-import kotlinx.coroutines.delay
 import com.droidcraft.app.jarvis.JarvisViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.droidcraft.app.model.LiveConversationMessage
 import com.droidcraft.app.model.LiveConversationStatus
 import com.droidcraft.app.model.LiveVoiceMode
@@ -78,9 +105,10 @@ import org.json.JSONObject
 import java.util.Locale
 
 private const val JARVIS_HUD_TAG = "JarvisHUD"
-private val HudRed = Color(0xFFFF1744)
-private val HudSurface = Color(0xFF0C1018)
-private val HudMuted = Color(0xFFBAC3D0)
+private val HudCyan = Color(0xFF56EFF7)
+private val HudRed = Color(0xFFFF4964)
+private val HudSurface = Color(0xFF081421)
+private val HudMuted = Color(0xFFA3BAC6)
 
 /** The supplied Mark 85 HUD is the primary Jarvis screen; its controls call into native Android. */
 @Composable
@@ -89,9 +117,16 @@ fun JarvisScreen(
     onOpenStudio: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenChat: () -> Unit,
-    onOpenMore: () -> Unit
+    onOpenMore: () -> Unit,
+    onOpenMemories: () -> Unit,
+    onOpenLanguage: () -> Unit,
+    isVisible: Boolean
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var activityVisible by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     val jarvisViewModel: JarvisViewModel = viewModel()
     val liveStatus by liveViewModel.liveStatus.collectAsState()
     val liveNotice by liveViewModel.liveNotice.collectAsState()
@@ -104,17 +139,81 @@ fun JarvisScreen(
     val hasGeminiKey by liveViewModel.hasGeminiKey.collectAsState()
     val jarvisMessages by jarvisViewModel.messages.collectAsState()
     val jarvisVoiceNotice by jarvisViewModel.voiceNotice.collectAsState()
+    val jarvisThinking by jarvisViewModel.isThinking.collectAsState()
+    val jarvisSpeaking by jarvisViewModel.isSpeaking.collectAsState()
+    val jarvisListening by jarvisViewModel.isListening.collectAsState()
 
     var showHistory by remember { mutableStateOf(false) }
     var hudLoading by remember { mutableStateOf(true) }
     var hudReady by remember { mutableStateOf(false) }
     var hudError by remember { mutableStateOf<String?>(null) }
+    var weatherPlace by remember { mutableStateOf("Local weather") }
+    var weatherValue by remember { mutableStateOf("Tap to enable") }
+    var weatherLoading by remember { mutableStateOf(false) }
+    val weatherScope = rememberCoroutineScope()
     val webViewState = remember { mutableStateOf<WebView?>(null) }
     val reportHudError = rememberUpdatedState(newValue = { message: String ->
         Log.e(JARVIS_HUD_TAG, message)
         if (!hudReady) {
             hudLoading = false
             hudError = message
+        }
+    })
+
+    val loadWeatherForLocation = rememberUpdatedState(newValue = { location: Location ->
+        weatherLoading = true
+        weatherPlace = "Your area"
+        weatherValue = "Finding conditions…"
+        weatherScope.launch {
+            try {
+                val weather = withContext(Dispatchers.IO) {
+                    val place = resolveLocality(context, location)
+                    HudWeatherRepository().current(location.latitude, location.longitude, place)
+                }
+                weatherPlace = weather.place
+                weatherValue = "${weather.temperatureC}°C · ${weather.condition}"
+                webViewState.value?.evaluateJavascript(
+                    "window.setHudFeedback(${JSONObject.quote("Weather updated · ${weather.place}")});",
+                    null
+                )
+            } catch (error: Exception) {
+                weatherPlace = "Local weather"
+                weatherValue = "Unavailable · tap to retry"
+                Log.w(JARVIS_HUD_TAG, "Location weather request failed: ${error.message}")
+            } finally {
+                weatherLoading = false
+            }
+        }
+    })
+    val resolveCurrentLocation = rememberUpdatedState(newValue = {
+        requestSingleHudLocation(
+            context = context,
+            onLocation = { location -> loadWeatherForLocation.value(location) },
+            onUnavailable = {
+                weatherLoading = false
+                weatherPlace = "Location unavailable"
+                weatherValue = "Turn on Location and retry"
+            }
+        )
+    })
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) {
+            resolveCurrentLocation.value()
+        } else {
+            weatherPlace = "Location is off"
+            weatherValue = "Allow approximate location to continue"
+        }
+    }
+    val requestWeather = rememberUpdatedState(newValue = {
+        val hasLocationPermission = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasLocationPermission) {
+            resolveCurrentLocation.value()
+        } else {
+            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     })
 
@@ -139,9 +238,23 @@ fun JarvisScreen(
     val openHistory = rememberUpdatedState(newValue = { showHistory = true })
     val openStudio = rememberUpdatedState(newValue = onOpenStudio)
     val openSettings = rememberUpdatedState(newValue = onOpenSettings)
+    val openMemories = rememberUpdatedState(newValue = onOpenMemories)
+    val openLanguage = rememberUpdatedState(newValue = onOpenLanguage)
     val openHistoryOrStart = rememberUpdatedState(newValue = {
         if (liveStatus.isActive()) openHistory.value.invoke() else startLive.value.invoke()
     })
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> activityVisible = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> activityVisible = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(hasGeminiKey) {
         // Settings and Jarvis text commands share the same Keystore-backed Gemini key.
@@ -154,7 +267,7 @@ fun JarvisScreen(
             factory = { viewContext ->
                 val mainHandler = Handler(Looper.getMainLooper())
                 WebView(viewContext).apply {
-                    setBackgroundColor(android.graphics.Color.rgb(5, 1, 2))
+                    setBackgroundColor(android.graphics.Color.rgb(5, 11, 21))
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.allowFileAccess = true
@@ -251,6 +364,9 @@ fun JarvisScreen(
                             studioClickAction = openStudio,
                             historyClickAction = openHistory,
                             settingsClickAction = openSettings,
+                            memoriesClickAction = openMemories,
+                            languageClickAction = openLanguage,
+                            weatherClickAction = requestWeather,
                             hudErrorAction = reportHudError
                         ),
                         "JarvisBridge"
@@ -292,14 +408,35 @@ fun JarvisScreen(
             }
         }
 
-        LaunchedEffect(webViewState.value, liveStatus, effectiveVoice, selectedVoice) {
+        LaunchedEffect(webViewState.value, hudReady, isVisible, activityVisible) {
+            val page = webViewState.value ?: return@LaunchedEffect
+            if (!hudReady) return@LaunchedEffect
+            val shouldAnimate = isVisible && activityVisible
+            page.evaluateJavascript("window.setHudVisible($shouldAnimate);", null)
+        }
+
+        LaunchedEffect(webViewState.value, hudReady, weatherPlace, weatherValue, weatherLoading) {
+            val page = webViewState.value ?: return@LaunchedEffect
+            if (!hudReady) return@LaunchedEffect
+            val js = "window.setHudWeather(" +
+                "${JSONObject.quote(weatherPlace)}," +
+                "${JSONObject.quote(weatherValue)}," +
+                "$weatherLoading);"
+            page.evaluateJavascript(js, null)
+        }
+
+        LaunchedEffect(webViewState.value, hudReady, liveStatus, effectiveVoice, selectedVoice, jarvisThinking, jarvisSpeaking, jarvisListening) {
             val view = webViewState.value ?: return@LaunchedEffect
-            val (orbState, statusLabel, caption) = when (liveStatus) {
-                LiveConversationStatus.CONNECTING -> Triple("thinking", "CONNECTING", "CONNECTING TO GEMINI LIVE...")
-                LiveConversationStatus.LISTENING -> Triple("listening", "LIVE", "LIVE TALK • SPEAK NATURALLY")
-                LiveConversationStatus.SPEAKING -> Triple("speaking", "LIVE", "JARVIS IS REPLYING")
-                LiveConversationStatus.ERROR -> Triple("idle", "ERROR", "CONNECTION FAILED • SEE DETAILS BELOW")
-                LiveConversationStatus.IDLE -> Triple("idle", "READY", "SYSTEM ONLINE • TAP TO START LIVE TALK")
+            if (!hudReady) return@LaunchedEffect
+            val (orbState, statusLabel, caption) = when {
+                liveStatus == LiveConversationStatus.CONNECTING -> Triple("thinking", "CONNECTING", "CONNECTING TO GEMINI LIVE...")
+                liveStatus == LiveConversationStatus.LISTENING -> Triple("listening", "LIVE", "LIVE TALK • SPEAK NATURALLY")
+                liveStatus == LiveConversationStatus.SPEAKING -> Triple("speaking", "LIVE", "JARVIS IS REPLYING")
+                liveStatus == LiveConversationStatus.ERROR -> Triple("idle", "ERROR", "CONNECTION FAILED • SEE DETAILS BELOW")
+                jarvisListening -> Triple("listening", "LISTENING", "VOICE INPUT ACTIVE • SPEAK NATURALLY")
+                jarvisThinking -> Triple("thinking", "THINKING", "PARSING REQUEST • STAND BY")
+                jarvisSpeaking -> Triple("speaking", "SPEAKING", "JARVIS IS TRANSMITTING AUDIO")
+                else -> Triple("idle", "READY", "SYSTEM ONLINE • TAP TO START LIVE TALK")
             }
             val voiceCaption = when (effectiveVoice ?: selectedVoice) {
                 LiveVoiceMode.ELEVENLABS -> "ELEVENLABS • BUNTY VOICE"
@@ -322,14 +459,33 @@ fun JarvisScreen(
             }
         }
 
-        if (hudLoading || hudError != null) {
+        if (hudError != null) {
+            NativeHudFallback(
+                error = hudError.orEmpty(),
+                isLiveActive = liveStatus.isActive(),
+                onRetry = {
+                    hudReady = false
+                    hudLoading = true
+                    hudError = null
+                    webViewState.value?.let { page ->
+                        page.stopLoading()
+                        page.reload()
+                    }
+                },
+                onToggleLive = { toggleLive.value.invoke() },
+                onOrbClicked = { openHistoryOrStart.value.invoke() },
+                onOpenHistory = { openHistory.value.invoke() },
+                onOpenStudio = { openStudio.value.invoke() },
+                onOpenMemories = { openMemories.value.invoke() },
+                onOpenLanguage = { openLanguage.value.invoke() },
+                onOpenSettings = { openSettings.value.invoke() },
+                onOpenChat = onOpenChat
+            )
+        } else if (hudLoading) {
             Surface(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .padding(20.dp),
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(20.dp),
                 shape = RoundedCornerShape(18.dp),
-                color = Color(0xF20C1018),
+                color = Color(0xF2081421),
                 tonalElevation = 8.dp
             ) {
                 Column(
@@ -337,26 +493,9 @@ fun JarvisScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (hudLoading) {
-                        CircularProgressIndicator(color = HudRed, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
-                        Text("Loading Jarvis HUD…", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        Text("Preparing the local interface. Navigation remains available below.", color = HudMuted)
-                    } else {
-                        Text("Jarvis HUD could not start", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        Text(hudError.orEmpty(), color = HudMuted, style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = {
-                                hudReady = false
-                                hudLoading = true
-                                hudError = null
-                                webViewState.value?.let { page ->
-                                    page.stopLoading()
-                                    page.reload()
-                                }
-                            }) { Text("Retry") }
-                            TextButton(onClick = onOpenChat) { Text("Open Chat") }
-                        }
-                    }
+                    CircularProgressIndicator(color = HudCyan, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                    Text("Loading Jarvis HUD…", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Preparing the local interface. Navigation remains available below.", color = HudMuted)
                 }
             }
         }
@@ -368,13 +507,13 @@ fun JarvisScreen(
                 .padding(horizontal = 16.dp, vertical = 14.dp)
                 .align(Alignment.BottomCenter),
             shape = RoundedCornerShape(14.dp),
-            color = Color(0xEE10141C),
+            color = Color(0xEE081421),
             tonalElevation = 6.dp
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     liveNotice?.takeIf { it.isNotBlank() } ?: jarvisVoiceNotice.orEmpty(),
-                    color = if (liveStatus == LiveConversationStatus.ERROR) Color(0xFFFF9AA8) else HudMuted,
+                    color = if (liveStatus == LiveConversationStatus.ERROR) MaterialTheme.colorScheme.error else HudMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -424,6 +563,137 @@ fun JarvisScreen(
     }
 }
 
+@Composable
+private fun NativeHudFallback(
+    error: String,
+    isLiveActive: Boolean,
+    onRetry: () -> Unit,
+    onToggleLive: () -> Unit,
+    onOrbClicked: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenStudio: () -> Unit,
+    onOpenMemories: () -> Unit,
+    onOpenLanguage: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenChat: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("J . A . R . V . I . S", style = MaterialTheme.typography.titleMedium, color = HudCyan, fontWeight = FontWeight.Bold)
+                Text("NATIVE RECOVERY INTERFACE", style = MaterialTheme.typography.labelSmall, color = HudMuted)
+            }
+            Surface(shape = RoundedCornerShape(99.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                Text(
+                    "WEB HUD OFFLINE",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        NativeFallbackOrb(onClick = onOrbClicked)
+        Text("NATIVE HUD READY", style = MaterialTheme.typography.labelMedium, color = HudCyan, fontWeight = FontWeight.Bold)
+        Text(
+            "The animated WebView core could not start. Your voice controls and quick actions are still available here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = HudMuted
+        )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(15.dp),
+            color = MaterialTheme.colorScheme.errorContainer
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("HUD startup issue", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.SemiBold)
+                Text(error.take(320), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                TextButton(onClick = onRetry) { Text("Retry WebView HUD") }
+            }
+        }
+
+        Button(onClick = onToggleLive, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Mic, contentDescription = null, tint = HudRed)
+            Spacer(Modifier.width(8.dp))
+            Text(if (isLiveActive) "End Live Talk" else "Start Live Talk")
+        }
+        OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) {
+            Text("Open history & type to Jarvis")
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            TextButton(onClick = onOpenChat) { Text("Chat") }
+            TextButton(onClick = onOpenStudio) { Text("Screen tools") }
+            TextButton(onClick = onOpenSettings) { Text("Settings") }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            TextButton(onClick = onOpenMemories) { Text("Memories") }
+            TextButton(onClick = onOpenLanguage) { Text("Language") }
+        }
+    }
+}
+
+@Composable
+private fun NativeFallbackOrb(onClick: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "native-fallback-orb")
+    val pulse by transition.animateFloat(
+        initialValue = .92f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(tween(1800), repeatMode = RepeatMode.Reverse),
+        label = "core-pulse"
+    )
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(18000, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "ring-rotation"
+    )
+    val amber = MaterialTheme.colorScheme.tertiary
+    Box(
+        modifier = Modifier.size(230.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = size.minDimension * .38f
+            drawCircle(HudCyan.copy(alpha = .09f), radius = radius * pulse)
+            drawCircle(HudCyan.copy(alpha = .18f), radius = radius * .85f, style = Stroke(1.dp.toPx()))
+            drawCircle(HudCyan.copy(alpha = .42f), radius = radius * .72f, style = Stroke(1.dp.toPx(), pathEffect = null))
+            drawArc(
+                color = HudCyan.copy(alpha = .88f),
+                startAngle = rotation,
+                sweepAngle = 76f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = Size(radius * 2f, radius * 2f),
+                style = Stroke(width = 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
+            drawArc(
+                color = amber.copy(alpha = .85f),
+                startAngle = -rotation * .72f,
+                sweepAngle = 34f,
+                useCenter = false,
+                topLeft = Offset(center.x - radius * .62f, center.y - radius * .62f),
+                size = Size(radius * 1.24f, radius * 1.24f),
+                style = Stroke(width = 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
+            drawCircle(Color(0xFFDCFFFF), radius = size.minDimension * .075f * pulse)
+            drawCircle(HudCyan.copy(alpha = .5f), radius = size.minDimension * .16f, style = Stroke(1.5.dp.toPx()))
+        }
+        Text("CORE", style = MaterialTheme.typography.labelSmall, color = Color(0xFF001418), fontWeight = FontWeight.Bold)
+    }
+}
+
 private class JarvisHudBridge(
     private val mainHandler: Handler,
     private val orbClickAction: androidx.compose.runtime.State<() -> Unit>,
@@ -432,6 +702,9 @@ private class JarvisHudBridge(
     private val studioClickAction: androidx.compose.runtime.State<() -> Unit>,
     private val historyClickAction: androidx.compose.runtime.State<() -> Unit>,
     private val settingsClickAction: androidx.compose.runtime.State<() -> Unit>,
+    private val memoriesClickAction: androidx.compose.runtime.State<() -> Unit>,
+    private val languageClickAction: androidx.compose.runtime.State<() -> Unit>,
+    private val weatherClickAction: androidx.compose.runtime.State<() -> Unit>,
     private val hudErrorAction: androidx.compose.runtime.State<(String) -> Unit>
 ) {
     @JavascriptInterface fun onOrbClicked() = dispatch(orbClickAction)
@@ -440,6 +713,9 @@ private class JarvisHudBridge(
     @JavascriptInterface fun onScreenShareClicked() = dispatch(studioClickAction)
     @JavascriptInterface fun onHistoryClicked() = dispatch(historyClickAction)
     @JavascriptInterface fun onSettingsClicked() = dispatch(settingsClickAction)
+    @JavascriptInterface fun onMemoriesClicked() = dispatch(memoriesClickAction)
+    @JavascriptInterface fun onLanguageClicked() = dispatch(languageClickAction)
+    @JavascriptInterface fun onWeatherClicked() = dispatch(weatherClickAction)
 
     @JavascriptInterface
     fun onHudError(message: String) {
@@ -530,7 +806,7 @@ private fun JarvisHistoryDialog(
 
                 if (liveStatus == LiveConversationStatus.CONNECTING) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = HudRed)
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = HudCyan)
                         Text("Connecting… typed messages will be sent when the session is ready.", color = HudMuted, fontSize = 12.sp)
                     }
                 }
@@ -540,7 +816,7 @@ private fun JarvisHistoryDialog(
                             historyNotice,
                             modifier = Modifier.weight(1f),
                             color = if (liveStatus == LiveConversationStatus.ERROR && !liveNotice.isNullOrBlank()) {
-                                Color(0xFFFF9AA8)
+                                MaterialTheme.colorScheme.error
                             } else HudMuted,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -556,7 +832,7 @@ private fun JarvisHistoryDialog(
                         } else {
                             "LIVE TALK • ${activeVoice.title.uppercase(Locale.ROOT)}"
                         },
-                        color = HudRed,
+                        color = HudCyan,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -631,11 +907,11 @@ private fun JarvisHistoryDialog(
                             unfocusedTextColor = Color.White,
                             focusedPlaceholderColor = Color(0xFF8D98A8),
                             unfocusedPlaceholderColor = Color(0xFF8D98A8),
-                            focusedBorderColor = HudRed,
+                            focusedBorderColor = HudCyan,
                             unfocusedBorderColor = Color(0xFF475569),
-                            cursorColor = HudRed,
-                            focusedContainerColor = Color(0xFF111822),
-                            unfocusedContainerColor = Color(0xFF111822)
+                            cursorColor = HudCyan,
+                            focusedContainerColor = Color(0xFF0E2030),
+                            unfocusedContainerColor = Color(0xFF0E2030)
                         )
                     )
                     IconButton(
@@ -663,18 +939,92 @@ private fun HistoryBubble(text: String, isUser: Boolean, isDraft: Boolean = fals
     ) {
         Surface(
             shape = RoundedCornerShape(14.dp),
-            color = if (isUser) Color(0xFF6D1E2C) else Color(0xFF19212C),
+            color = if (isUser) Color(0xFF0B3540) else Color(0xFF0E2030),
             tonalElevation = if (isDraft) 0.dp else 1.dp
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text(
                     if (isUser) "YOU" else "JARVIS",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isUser) Color(0xFFFFC3CC) else Color(0xFFFF647C)
+                    color = if (isUser) Color(0xFFC9FCFF) else HudCyan
                 )
                 Text(text, color = Color.White, style = MaterialTheme.typography.bodyMedium)
             }
         }
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun resolveLocality(context: Context, location: Location): String = try {
+    Geocoder(context, Locale.getDefault())
+        .getFromLocation(location.latitude, location.longitude, 1)
+        ?.firstOrNull()?.locality.orEmpty()
+} catch (_: Exception) {
+    ""
+}
+
+@Suppress("MissingPermission")
+private fun requestSingleHudLocation(
+    context: Context,
+    onLocation: (Location) -> Unit,
+    onUnavailable: () -> Unit
+) {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+    if (manager == null) {
+        onUnavailable()
+        return
+    }
+    val enabledProviders = runCatching { manager.getProviders(true) }.getOrDefault(emptyList())
+    val providerOrder = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+    val provider = providerOrder.firstOrNull { it in enabledProviders } ?: enabledProviders.firstOrNull()
+    if (provider == null) {
+        onUnavailable()
+        return
+    }
+
+    val recentLocation = enabledProviders.asSequence()
+        .mapNotNull { name -> runCatching { manager.getLastKnownLocation(name) }.getOrNull() }
+        .maxByOrNull { it.time }
+        ?.takeIf { System.currentTimeMillis() - it.time < 60L * 60L * 1000L }
+    if (recentLocation != null) {
+        onLocation(recentLocation)
+        return
+    }
+
+    val handler = Handler(Looper.getMainLooper())
+    var completed = false
+    lateinit var listener: LocationListener
+    val timeout = Runnable {
+        if (!completed) {
+            completed = true
+            runCatching { manager.removeUpdates(listener) }
+            onUnavailable()
+        }
+    }
+    listener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            if (completed) return
+            completed = true
+            handler.removeCallbacks(timeout)
+            runCatching { manager.removeUpdates(this) }
+            onLocation(location)
+        }
+
+        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) = Unit
+        override fun onProviderEnabled(provider: String) = Unit
+        override fun onProviderDisabled(provider: String) = Unit
+    }
+    handler.postDelayed(timeout, 15_000L)
+    try {
+        manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+    } catch (_: SecurityException) {
+        handler.removeCallbacks(timeout)
+        completed = true
+        onUnavailable()
+    } catch (_: IllegalArgumentException) {
+        handler.removeCallbacks(timeout)
+        completed = true
+        onUnavailable()
     }
 }
 

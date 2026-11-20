@@ -63,6 +63,15 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     private val _geminiModelSettingsMessage = MutableStateFlow("")
     val geminiModelSettingsMessage: StateFlow<String> = _geminiModelSettingsMessage.asStateFlow()
 
+    private val _testingGeminiConnection = MutableStateFlow(false)
+    val testingGeminiConnection: StateFlow<Boolean> = _testingGeminiConnection.asStateFlow()
+
+    private val _geminiConnectionStatus = MutableStateFlow(if (geminiApiKey.isBlank()) "No key saved" else "Not tested")
+    val geminiConnectionStatus: StateFlow<String> = _geminiConnectionStatus.asStateFlow()
+
+    private val _geminiPingMs = MutableStateFlow<Long?>(null)
+    val geminiPingMs: StateFlow<Long?> = _geminiPingMs.asStateFlow()
+
     private val _speakAssistantReplies = MutableStateFlow(prefs.getBoolean(PREF_CHAT_SPEAK_REPLIES, true))
     val speakAssistantReplies: StateFlow<Boolean> = _speakAssistantReplies.asStateFlow()
     private var chatTextToSpeech: TextToSpeech? = null
@@ -153,12 +162,16 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         GeminiApiKeyStore.write(getApplication(), cleaned)
         geminiApiKey = cleaned
         _hasGeminiKey.value = cleaned.isNotBlank()
+        _geminiConnectionStatus.value = if (cleaned.isBlank()) "No key saved" else "Key saved · not tested"
+        _geminiPingMs.value = null
     }
 
     fun clearGeminiKey() {
         GeminiApiKeyStore.clear(getApplication())
         geminiApiKey = ""
         _hasGeminiKey.value = false
+        _geminiConnectionStatus.value = "No key saved"
+        _geminiPingMs.value = null
     }
 
     fun saveGeminiModelOrder(text: String): List<String> {
@@ -177,6 +190,16 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         _activeGeminiModel.value = saved.first()
         _geminiModelSettingsMessage.value = "Restored the default Gemini model order."
         return saved
+    }
+
+    fun selectPrimaryGeminiModel(modelId: String) {
+        val currentOrder = _geminiModelOrder.value
+        if (modelId !in currentOrder) return
+        val reordered = listOf(modelId) + currentOrder.filterNot { it == modelId }
+        val saved = GeminiModelSettings.write(getApplication(), reordered)
+        _geminiModelOrder.value = saved
+        _activeGeminiModel.value = saved.first()
+        _geminiModelSettingsMessage.value = "Preferred ${saved.first()} and kept the remaining fallback order."
     }
 
     fun refreshAvailableGeminiModels() {
@@ -202,6 +225,40 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
                     "Could not refresh models: ${error.message ?: "check the key and network, then retry."}"
             } finally {
                 _refreshingGeminiModels.value = false
+            }
+        }
+    }
+
+    /** Measures an end-to-end, one-token Gemini request using the configured model fallback order. */
+    fun testGeminiConnection() {
+        if (_testingGeminiConnection.value) return
+        val key = geminiApiKey
+        if (key.isBlank()) {
+            _geminiConnectionStatus.value = "No Gemini key saved"
+            _geminiPingMs.value = null
+            return
+        }
+        viewModelScope.launch {
+            _testingGeminiConnection.value = true
+            _geminiConnectionStatus.value = "Testing model access…"
+            _geminiPingMs.value = null
+            val startedAt = System.nanoTime()
+            try {
+                val client = GeminiClient(
+                    apiKey = key,
+                    systemPrompt = "You are performing a short connection check. Reply with OK.",
+                    modelOrder = _geminiModelOrder.value,
+                    onModelSelected = { model -> _activeGeminiModel.value = model }
+                )
+                client.reply(listOf(true to "Reply with only OK."))
+                val elapsedMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(1L)
+                _geminiPingMs.value = elapsedMs
+                _geminiConnectionStatus.value = "Connected · ${_activeGeminiModel.value}"
+            } catch (error: Exception) {
+                val detail = error.message?.take(240).orEmpty().ifBlank { "check key and network" }
+                _geminiConnectionStatus.value = "Connection failed · $detail"
+            } finally {
+                _testingGeminiConnection.value = false
             }
         }
     }

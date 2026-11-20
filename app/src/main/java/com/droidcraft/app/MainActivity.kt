@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import com.droidcraft.app.ui.DroidCraftNavHost
 import com.droidcraft.app.ui.theme.DroidCraftTheme
 import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -54,10 +53,13 @@ class MainActivity : ComponentActivity() {
     }
 
     fun launchVoiceRecognizer() {
+        val speechLanguage = getSharedPreferences("droidcraft", MODE_PRIVATE)
+            .getString("jarvis_voice_language", "hi-IN") ?: "hi-IN"
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak command in Hindi or English...")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguage)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguage)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak a command in Hindi or English...")
         }
         try {
             speechLauncher.launch(intent)
