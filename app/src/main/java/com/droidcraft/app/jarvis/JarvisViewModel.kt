@@ -161,7 +161,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         return JarvisCharacter.UserContext(
             userName = _userName.value.ifBlank { "sahab" },
             facts = _memories.value.map { it.value },
-            channelList = listOf("GT Marwadi Vlogs", "GT Tech Gyaan", "GT6 Ki Duniya Hindi",
+            channels = listOf("GT Marwadi Vlogs", "GT Tech Gyaan", "GT6 Ki Duniya Hindi",
                 "Mind Facts Hindi", "Kids Videos Hindi Story", "Lumo Tales", "Khanak Drops"),
             work = "6+ YouTube channels, clipping business, Hindi dubbing, product reels"
         )
