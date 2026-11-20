@@ -83,13 +83,6 @@ def _heygen(text: str, voice: str, speed: float, sentence_mode: bool) -> bytes:
     return b"".join(chunks)
 
 
-PROVIDERS = {
-    "smallest": _smallest,
-    "heygen": _heygen,
-    "elevenlabs": _elevenlabs,
-}
-
-
 def _elevenlabs(text: str, voice: str, speed: float, sentence_mode: bool,
                 style: float = 0.35, stability: float = 0.5) -> bytes:
     """ElevenLabs TTS — emotion style के साथ (Bunty - Funny Best Friend default)।"""
@@ -129,6 +122,13 @@ def _elevenlabs(text: str, voice: str, speed: float, sentence_mode: bool,
     if abs(speed - 1.0) > 0.02:
         out = _atempo(out, speed)
     return out
+
+
+PROVIDERS = {
+    "smallest": _smallest,
+    "heygen": _heygen,
+    "elevenlabs": _elevenlabs,
+}
 
 
 def _atempo(mp3: bytes, speed: float) -> bytes:

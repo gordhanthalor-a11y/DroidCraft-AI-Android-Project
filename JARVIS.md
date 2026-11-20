@@ -87,3 +87,23 @@ Bottom bar का **Studio** tab खोलो — 8 हिस्से:
 
 Jarvis voice: `awaaz banao` / `voice studio` → Voice Studio; `upload check` / `qc karo` → Upload QC।
 Server deploy: `server/SERVER_DEPLOY.md` (Render / Railway)।
+
+## 🎭 Jarvis का Character, Emotion और Voice (नया)
+Jarvis अब robot नहीं — एक **लाइविंग AI दोस्त** है जो महसूस करता है।
+- **Character sheet**: `jarvis/character/JarvisCharacter.kt` — उसका नाम, लहजा (Hinglish), नियम, और हर बात में आपका नाम/काम/यादें शामिल।
+- **Emotion engine**: `jarvis/character/Emotion.kt` — बात से भावना निकालता है (खुशी/दुख/गुस्सा/हिम्मत/शांति) और तीन जगह दिखाता है:
+  1. **शब्द** — जवाब का लहजा भावना के अनुसार।
+  2. **आवाज़** — ElevenLabs style/stability/speed भावना से बदलता है।
+  3. **HUD avatar** — arc reactor के बीच 😄😔😌💪 और रंग बदलता है, status "खुश / दुखी / शांत / हिम्मत दे रहा"।
+- **Memory**: आपका नाम, काम, चैनल और यादें Gemini को हर बार ताज़ा मिलती हैं।
+
+### Voice Settings (कहाँ हैं)
+Jarvis स्क्रीन के ऊपर **🎙️ (RecordVoiceOver) icon** दबाओ → "Jarvis Voice Settings"।
+- **Voice Mode**: Free – फ़ोन की आवाज़ / Free – Gemini Voices / ElevenLabs / Smallest / HeyGen / **Smart**।
+- **ElevenLabs API key** — आप खुद डालो (encrypted TokenVault में, कहीं hardcode नहीं)।
+- **Voice ID** — default **Bunty - Funny Best Friend** (`7b9mYhmnp0y2qSH1FnBL`)।
+- **मेरी clone voice ID** (Smallest) — permanent choice।
+- **Gemini voice** — Free-Gemini mode के लिए।
+
+**Smart mode**: रोज़ की बात = free phone voice; मज़बूत भावना (खुशी/दुख/हिम्मत) = ElevenLabs।
+**क्रेडिट खत्म हों तो** ElevenLabs अपने आप block होकर फ़ोन वॉइस चली जाती है; क्रेडिट वापस आने पर खुद ElevenLabs। Jarvis कभी चुप नहीं होगा।
