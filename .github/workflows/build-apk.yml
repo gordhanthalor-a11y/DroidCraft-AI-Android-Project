@@ -45,6 +45,14 @@ jobs:
         shell: bash
         run: |
           if [[ -f build.log ]]; then
+            compiler_diagnostics="$(grep -E '^e: |(^|[[:space:]])error:' build.log | head -n 120 || true)"
+            if [[ -n "$compiler_diagnostics" ]]; then
+              echo "::group::Kotlin compiler diagnostics"
+              while IFS= read -r message; do
+                [[ -z "$message" ]] || echo "::error::$message"
+              done <<< "$compiler_diagnostics"
+              echo "::endgroup::"
+            fi
             details="$(awk '/^\* What went wrong:/{capture=1} capture{print} /^BUILD FAILED/{if (capture) exit}' build.log)"
             if [[ -z "$details" ]]; then
               details="$(tail -n 60 build.log)"
