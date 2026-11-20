@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.AlarmClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import com.droidcraft.app.jarvis.contacts.ContactResolver
+import com.droidcraft.app.jarvis.memory.MemoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -34,6 +36,8 @@ class JarvisDevice(private val context: Context) {
         .build()
 
     private val notesPrefs = context.getSharedPreferences("jarvis_notes", Context.MODE_PRIVATE)
+    private val contacts = ContactResolver(context)
+    private val memory = MemoryManager(context)
 
     /** Koi bhi JarvisIntent chalao; natija Hinglish message mein milta hai. */
     suspend fun execute(intent: JarvisIntent): JarvisOutcome = withContext(Dispatchers.Main) {
@@ -49,8 +53,12 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.OPEN_APP -> openApp(intent.args["query"].orEmpty())
             JarvisIntentType.WEB_SEARCH -> openIntent(webSearchIntent(intent.args["query"].orEmpty()), "Web search khol raha hoon.")
             JarvisIntentType.OPEN_URL -> openIntent(viewIntent(intent.args["url"].orEmpty()), "Link khol raha hoon.")
-            JarvisIntentType.CALL -> dial(intent.args["number"].orEmpty())
-            JarvisIntentType.SMS -> sms(intent.args["number"].orEmpty(), intent.args["body"].orEmpty())
+            JarvisIntentType.CALL -> dial(intent.args["number"].orEmpty(), intent.args["name"].orEmpty())
+            JarvisIntentType.SMS -> sms(
+                intent.args["number"].orEmpty(),
+                intent.args["name"].orEmpty(),
+                intent.args["body"].orEmpty()
+            )
             JarvisIntentType.ALARM -> setAlarm(
                 intent.args["hour"]?.toIntOrNull() ?: 7,
                 intent.args["minute"]?.toIntOrNull() ?: 0
@@ -58,6 +66,8 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.TIMER -> setTimer(intent.args["seconds"]?.toIntOrNull() ?: 60)
             JarvisIntentType.NOTE_ADD -> addNote(intent.args["text"].orEmpty())
             JarvisIntentType.NOTE_LIST -> listNotes()
+            JarvisIntentType.MEMORY_ADD -> remember(intent.args["text"].orEmpty())
+            JarvisIntentType.MEMORY_LIST -> recall(intent.args["query"].orEmpty())
             JarvisIntentType.WEATHER -> withContext(Dispatchers.IO) { weather(intent.args["city"].orEmpty()) }
             JarvisIntentType.MEMORY -> JarvisOutcome("Theek hai, ab main aapka naam yaad rakh lunga.")
             JarvisIntentType.CREATOR_HELP, JarvisIntentType.UNKNOWN ->
@@ -200,20 +210,40 @@ class JarvisDevice(private val context: Context) {
         return Intent(Intent.ACTION_VIEW, Uri.parse(url))
     }
 
-    private fun dial(number: String): JarvisOutcome {
-        val n = number.filter { it.isDigit() || it == '+' }
-        if (n.length < 6) return JarvisOutcome("Sahi number bataiye — 10 digit ka mobile number.", false)
-        return openIntent(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$n")), "Dial pad khol raha hoon.")
+    private fun dial(number: String, name: String): JarvisOutcome {
+        val n = resolveNumber(number, name)
+            ?: return JarvisOutcome(contactMissMessage(name, "Call"), false)
+        return openIntent(
+            Intent(Intent.ACTION_DIAL, Uri.parse("tel:$n")),
+            "Dial pad khol raha hoon: ${contactLabel(name, n)}."
+        )
     }
 
-    private fun sms(number: String, body: String): JarvisOutcome {
-        val n = number.filter { it.isDigit() || it == '+' }
-        if (n.length < 6) return JarvisOutcome("SMS ke liye number bataiye.", false)
+    private fun sms(number: String, name: String, body: String): JarvisOutcome {
+        val n = resolveNumber(number, name)
+            ?: return JarvisOutcome(contactMissMessage(name, "SMS"), false)
         val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$n")).apply {
             putExtra("sms_body", body)
         }
-        return openIntent(intent, "SMS app khol raha hoon.")
+        return openIntent(intent, "SMS app khol raha hoon: ${contactLabel(name, n)}.")
     }
+
+    /** Number seedha ho toh use karo, warna naam se contact dhundho. */
+    private fun resolveNumber(number: String, name: String): String? {
+        val digits = number.filter { it.isDigit() || it == '+' }
+        if (digits.length >= 6) return digits
+        if (name.isBlank()) return null
+        return contacts.resolve(name)?.number
+    }
+
+    private fun contactMissMessage(name: String, action: String): String = when {
+        name.isBlank() -> "$action ke liye sahi number bataiye (10 digit)."
+        !contacts.hasPermission() -> "'$name' dhundne ke liye contacts permission chahiye — allow karke dobara boliye."
+        else -> "'$name' naam ka contact nahi mila."
+    }
+
+    private fun contactLabel(name: String, number: String): String =
+        if (name.isNotBlank()) name else number
 
     private fun setAlarm(hour: Int, minute: Int): JarvisOutcome {
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
@@ -280,6 +310,21 @@ class JarvisDevice(private val context: Context) {
         if (notes.isEmpty()) return JarvisOutcome("Abhi koi note nahi hai. 'Note karo: ...' likhkar banaiye.")
         val text = notes.take(8).joinToString("\n") { "• ${it.text} (${it.time})" }
         return JarvisOutcome("Aapki notes:\n$text")
+    }
+
+    private suspend fun remember(text: String): JarvisOutcome {
+        if (text.isBlank()) return JarvisOutcome("Kya yaad rakhun? Likhiye.", false)
+        memory.remember(text)
+        return JarvisOutcome("Yaad rakh liya: \"$text\"")
+    }
+
+    private suspend fun recall(query: String): JarvisOutcome {
+        val facts = memory.search(query)
+        if (facts.isEmpty()) {
+            return JarvisOutcome("Abhi kuch yaad nahi hai. 'Remember that ...' likhkar batayiye.")
+        }
+        val text = facts.take(8).joinToString("\n") { "• ${it.value}" }
+        return JarvisOutcome("Mujhe yaad hai:\n$text")
     }
 
     fun loadNotes(): List<JarvisNote> {

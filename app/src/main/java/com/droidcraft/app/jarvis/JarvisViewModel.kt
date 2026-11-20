@@ -10,7 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.droidcraft.app.jarvis.memory.MemoryManager
 import com.droidcraft.app.jarvis.wake.WakeWordService
+import com.droidcraft.app.data.local.MemoryEntity
 import java.util.Calendar
 import java.util.Locale
 
@@ -21,6 +23,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     private val prefs = application.getSharedPreferences("droidcraft", Context.MODE_PRIVATE)
     private val device = JarvisDevice(application)
+    private val memory = MemoryManager(application)
 
     private var tts: TextToSpeech? = null
 
@@ -54,10 +57,14 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val _handsFree = MutableStateFlow(prefs.getBoolean("jarvis_hands_free", false))
     val handsFree: StateFlow<Boolean> = _handsFree.asStateFlow()
 
+    private val _memories = MutableStateFlow<List<MemoryEntity>>(emptyList())
+    val memories: StateFlow<List<MemoryEntity>> = _memories.asStateFlow()
+
     private var idCounter = 0L
 
     init {
         _notes.value = device.loadNotes()
+        viewModelScope.launch { _memories.value = memory.facts() }
         _messages.value = listOf(
             JarvisMessage(nextId(), greetingMessage(), isUser = false, kind = JarvisMessageKind.SYSTEM)
         )
@@ -107,6 +114,9 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             viewModelScope.launch {
                 val outcome = device.execute(intent)
                 _notes.value = device.loadNotes()
+                if (intent.type == JarvisIntentType.MEMORY_ADD || intent.type == JarvisIntentType.MEMORY_LIST) {
+                    _memories.value = memory.facts()
+                }
                 appendBot(outcome.message)
             }
         } else {
@@ -222,6 +232,21 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         val remaining = device.loadNotes().filterNot { it.id == id }
         device.saveNotes(remaining)
         _notes.value = remaining
+    }
+
+    fun forgetMemory(id: Long) {
+        viewModelScope.launch {
+            memory.forget(id)
+            _memories.value = memory.facts()
+        }
+    }
+
+    fun clearMemory() {
+        viewModelScope.launch {
+            memory.clear()
+            _memories.value = emptyList()
+            appendBot("Saari yaadein mit gayi.")
+        }
     }
 
     // ------------------------------------------------------------------ helpers

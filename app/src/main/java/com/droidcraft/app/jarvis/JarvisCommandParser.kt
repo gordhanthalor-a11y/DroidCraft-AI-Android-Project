@@ -49,8 +49,21 @@ object JarvisCommandParser {
             }
         }
 
+        // ---------- Memory (user ke baare mein facts) ----------
+        if (hasWord(text, "what do you remember", "yaad kya hai", "meri memory", "memory dikhao",
+                "what do you know about me", "kya yaad hai", "memory batao")) {
+            return JarvisIntent(JarvisIntentType.MEMORY_LIST, mapOf("query" to extractMemoryQuery(text)))
+        }
+        val memMatch = Regex("\\b(?:remember(?:\\s+that)?|yaad\\s+(?:rakho|rakh|dharak|dharo))\\s*:?\\s*(.+)$").find(text)
+        if (memMatch != null) {
+            val fact = memMatch.groupValues[1].trim().trimEnd('.', '?', '!', ',')
+            if (fact.isNotBlank()) {
+                return JarvisIntent(JarvisIntentType.MEMORY_ADD, mapOf("text" to fact))
+            }
+        }
+
         // ---------- Notes (Alarm se pehle — "note karo 10 baje" note honi chahiye) ----------
-        if (hasWord(text, "note", "notes") || Regex("\\byaad\\s+(?:rakho|rakh|dharak|dharo)\\b").containsMatchIn(text)) {
+        if (hasWord(text, "note", "notes")) {
             if (matchesAny(text, "dikha", "dikhao", "list", "kaunsi", "sab", "all")) {
                 return JarvisIntent(JarvisIntentType.NOTE_LIST)
             }
@@ -92,15 +105,18 @@ object JarvisCommandParser {
         // ---------- Call / SMS ----------
         if (hasWord(text, "sms", "message", "msg") && !hasWord(text, "open")) {
             val number = Regex("(\\+?\\d{10,13})").find(text)?.groupValues?.get(1).orEmpty()
+            val name = if (number.isBlank()) extractTarget(text.substringBefore(":")) else ""
             val body = text.substringAfter(":", "").trim()
-                .ifBlank { text.substringAfter("ki", "").trim() }
-                .ifBlank { text.substringAfter("message", "").trim() }
-            return JarvisIntent(JarvisIntentType.SMS, mapOf("number" to number, "body" to body))
+            return JarvisIntent(
+                JarvisIntentType.SMS,
+                mapOf("number" to number, "name" to name, "body" to body)
+            )
         }
         if (hasWord(text, "call", "dial", "phone karo", "call karo") || Regex("\\bphone\\b").containsMatchIn(text) && hasWord(text, "karo", "kar")) {
             val number = Regex("(\\+?\\d{10,13})").find(text)?.groupValues?.get(1).orEmpty()
+            val name = if (number.isBlank()) extractTarget(text) else ""
             if (number.isNotBlank() || hasWord(text, "call", "dial")) {
-                return JarvisIntent(JarvisIntentType.CALL, mapOf("number" to number))
+                return JarvisIntent(JarvisIntentType.CALL, mapOf("number" to number, "name" to name))
             }
         }
 
@@ -196,10 +212,22 @@ object JarvisCommandParser {
     }
 
     private fun extractNoteText(text: String): String {
-        val m = Regex("\\b(?:add\\s+note|note\\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo)|remember|yaad\\s+(?:rakho|rakh|dharak|dharo))\\s*:?\\s*(.+)$")
+        val m = Regex("\\b(?:add\\s+note|note\\s+(?:karo|kar|likho|likh|banao|ban|rakho|rakh|dharak|dharo))\\s*:?\\s*(.+)$")
             .find(text) ?: return ""
         return m.groupValues[1].trim().trimEnd('.', '?', '!', ',')
     }
+
+    /** "call papa" / "sms mom: hi" se sirf naam nikalta hai. */
+    private fun extractTarget(text: String): String =
+        Regex("\\b(?:call|dial|phone(?:\\s+karo)?|sms|message|msg)\\b\\s*(?:karo|kar|do)?\\s*:?\\s*(.*)$")
+            .find(text)?.groupValues?.get(1)?.trim()
+            ?.replace(Regex("\\b(?:ko|to|on|par)\\b"), " ")
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            .orEmpty()
+
+    private fun extractMemoryQuery(text: String): String =
+        Regex("\\b(?:about|baare\\s+mein)\\s+(.+)$").find(text)?.groupValues?.get(1)?.trim().orEmpty()
 
     private fun extractCity(text: String): String {
         val after = Regex("\\b(?:weather|mausam|temperature|baarish|barish)\\b\\s*(.*)$")

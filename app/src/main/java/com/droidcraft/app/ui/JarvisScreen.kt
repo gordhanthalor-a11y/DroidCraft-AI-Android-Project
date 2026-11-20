@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -81,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.droidcraft.app.jarvis.JarvisCommandParser
+import com.droidcraft.app.jarvis.JarvisIntentType
 import com.droidcraft.app.jarvis.JarvisMessage
 import com.droidcraft.app.jarvis.JarvisMessageKind
 import com.droidcraft.app.jarvis.JarvisNote
@@ -118,12 +120,15 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
     val autoSpeak by viewModel.autoSpeak.collectAsState()
     val userName by viewModel.userName.collectAsState()
     val handsFree by viewModel.handsFree.collectAsState()
+    val memories by viewModel.memories.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
     var showNotes by remember { mutableStateOf(false) }
+    var showMemory by remember { mutableStateOf(false) }
     var keyInput by remember { mutableStateOf("") }
     var pendingFlashlight by remember { mutableStateOf<String?>(null) }
+    var pendingContact by remember { mutableStateOf<String?>(null) }
 
     val listState = rememberLazyListState()
     val now = remember { SimpleDateFormat("h:mm a", Locale.ENGLISH).format(Date()) }
@@ -192,8 +197,27 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
         }
     }
 
+    val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = pendingContact
+        pendingContact = null
+        if (pending != null) viewModel.handleUserText(pending)
+        if (!granted) {
+            viewModel.handleUserText("Contacts permission na hona theek hai — number seedha bhi bana sakte hain.")
+        }
+    }
+
     fun submit(text: String) {
         if (text.isBlank()) return
+        val parsed = JarvisCommandParser.parse(text)
+        val needsContactName = (parsed?.type == JarvisIntentType.CALL || parsed?.type == JarvisIntentType.SMS) &&
+            !text.any { it.isDigit() }
+        val contactsGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (needsContactName && !contactsGranted) {
+            pendingContact = text
+            contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+            return
+        }
         if (JarvisCommandParser.isFlashlight(text)) {
             val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
@@ -272,6 +296,13 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
                 }
                 IconButton(onClick = { showNotes = true }) {
                     Icon(Icons.Default.Notes, contentDescription = "Notes", tint = JarvisColors.slate)
+                }
+                IconButton(onClick = { showMemory = true }) {
+                    Icon(
+                        Icons.Default.Psychology,
+                        contentDescription = "Memory",
+                        tint = if (memories.isNotEmpty()) JarvisColors.cyan else JarvisColors.slate
+                    )
                 }
                 IconButton(onClick = { showKey = true }) {
                     Icon(Icons.Default.Settings, contentDescription = "Settings", tint = JarvisColors.slate)
@@ -409,6 +440,64 @@ fun JarvisScreen(viewModel: JarvisViewModel = viewModel()) {
             },
             dismissButton = {
                 TextButton(onClick = { showKey = false }) { Text("Close") }
+            },
+            containerColor = JarvisColors.surfaceDeep
+        )
+    }
+
+    // ---------------- memory dialog ----------------
+    if (showMemory) {
+        AlertDialog(
+            onDismissRequest = { showMemory = false },
+            title = { Text("Jarvis ki Yaadein", color = Color.White) },
+            text = {
+                if (memories.isEmpty()) {
+                    Text(
+                        "Abhi kuch yaad nahi hai. \"Remember that mere bike ka number 1234 hai\" — aise likhkar batayiye.",
+                        color = JarvisColors.slateLight
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        memories.forEach { fact ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = JarvisColors.surface.copy(alpha = 0.7f)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        fact.value,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(onClick = { viewModel.forgetMemory(fact.id) }, modifier = Modifier.size(32.dp)) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Forget",
+                                            tint = JarvisColors.slate,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (memories.isNotEmpty()) {
+                    TextButton(onClick = { viewModel.clearMemory() }) { Text("Sab mitao") }
+                } else {
+                    TextButton(onClick = { showMemory = false }) { Text("Close") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMemory = false }) { Text("Close") }
             },
             containerColor = JarvisColors.surfaceDeep
         )

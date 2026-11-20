@@ -15,6 +15,8 @@ enum class JarvisIntentType {
     TIMER,
     NOTE_ADD,
     NOTE_LIST,
+    MEMORY_ADD,
+    MEMORY_LIST,
     FLASHLIGHT,
     BATTERY,
     DEVICE_INFO,
