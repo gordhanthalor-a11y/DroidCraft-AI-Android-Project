@@ -25,6 +25,8 @@ enum class JarvisIntentType {
     AUTOMATE,
     SOCIAL_DASHBOARD,
     POST_SCHEDULE,
+    STUDIO_VOICE,
+    STUDIO_QC,
     MEMORY,
     JOKE,
     GREETING,

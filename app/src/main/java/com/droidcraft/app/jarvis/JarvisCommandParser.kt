@@ -97,6 +97,16 @@ object JarvisCommandParser {
             return JarvisIntent(JarvisIntentType.DEVICE_INFO)
         }
 
+        // ---------- Creator Studio (Phase 1) ----------
+        if (hasWord(text, "awaaz banao", "voice studio", "voice banao", "tts", "text to speech",
+                "narration banao", "awaaz banau", "audio banao", "script sunao")) {
+            return JarvisIntent(JarvisIntentType.STUDIO_VOICE)
+        }
+        if (hasWord(text, "upload check", "upload helper", "upload qc", "file check karo",
+                "video check karo", "short check", "shorts check karo", "qc karo", "qc check")) {
+            return JarvisIntent(JarvisIntentType.STUDIO_QC)
+        }
+
         // ---------- Social / Buffer automation ----------
         if (hasWord(text, "social dashboard", "social hub", "social kholo", "social khula", "buffer dashboard",
                 "posts dashboard", "posting dashboard", "social media dashboard", "publishing dashboard",

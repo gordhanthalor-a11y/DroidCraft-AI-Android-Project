@@ -80,6 +80,14 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.SOCIAL_DASHBOARD -> JarvisOutcome(
                 "Social Hub kholo — bottom bar का 'Social' tab. Wahan scheduled/published/failed posts दिखेंगे."
             )
+            JarvisIntentType.STUDIO_VOICE -> JarvisOutcome(
+                "Voice Studio खोलो — bottom bar का 'Studio' tab, 'Awaaz Banao'। " +
+                    "Server URL और provider keys Studio के Settings में डालो."
+            )
+            JarvisIntentType.STUDIO_QC -> JarvisOutcome(
+                "Upload QC खोलो — Studio tab → 'Upload QC'। वीडियो चुनो, सारे checks खुद दिखेंगे " +
+                    "(resolution, SAR/DAR, audio, loudness)।"
+            )
             JarvisIntentType.POST_SCHEDULE -> JarvisOutcome(
                 "Social Hub → Schedule icon दबाओ, videos चुनो, date/time सेट करो. " +
                     "AI captions अपने आप बनेंगी, फिर exact time पर publish हो जाएँगी."

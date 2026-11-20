@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="voice_studio" path="voice_studio/" />
+    <files-path name="social_videos" path="social_videos/" />
+    <cache-path name="cache" path="/" />
+</paths>

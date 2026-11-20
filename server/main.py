@@ -10,13 +10,16 @@ import sqlite3
 import time
 import threading
 import logging
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+
+from tts import synthesize, voices, qc_video, TtsError
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jarvis-social")
@@ -99,6 +102,47 @@ class AccountIn(BaseModel):
 @app.get("/api/v1/health")
 def health():
     return {"ok": True, "time": int(time.time())}
+
+
+# ------------------------------------------------------------------ Creator Studio (Phase 1)
+
+class TtsRequest(BaseModel):
+    text: str
+    provider: str = "smallest"
+    voice: str = ""
+    speed: float = 1.0
+    sentence_mode: bool = True
+
+
+@app.post("/api/v1/tts")
+def tts(req: TtsRequest):
+    """Hindi script → MP3 bytes (Smallest AI / HeyGen)."""
+    try:
+        data = synthesize(req.text, req.provider, req.voice, req.speed, req.sentence_mode)
+        return Response(content=data, media_type="audio/mpeg")
+    except TtsError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("tts error: %s", e)
+        raise HTTPException(status_code=502, detail=f"TTS fail: {e}")
+
+
+@app.get("/api/v1/tts/voices")
+def tts_voices(provider: str = "smallest"):
+    return {"provider": provider, "voices": voices(provider)}
+
+
+@app.post("/api/v1/qc")
+async def qc(file: UploadFile = File(...)):
+    """Video file का पूरा QC — ffprobe: resolution/SAR/DAR/duration/audio/loudness."""
+    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+        tf.write(await file.read())
+        path = tf.name
+    try:
+        return qc_video(path)
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 @app.post("/api/v1/posts/sync")
 def sync_posts(posts: list[PostIn]):
