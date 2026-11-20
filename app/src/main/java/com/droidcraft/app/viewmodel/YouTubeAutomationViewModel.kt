@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.droidcraft.app.ai.GeminiLiveVoiceSession
 import com.droidcraft.app.ai.GeminiClient
+import com.droidcraft.app.data.GeminiApiKeyStore
 import com.droidcraft.app.data.SecureKeyStore
 import com.droidcraft.app.data.YouTubeApiService
 import com.droidcraft.app.data.local.AppDatabase
@@ -41,7 +42,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     private val secureKeyStore = SecureKeyStore(application)
 
     // Migrate older locally saved Gemini keys to encrypted storage without showing the key again.
-    private var geminiApiKey: String = loadGeminiKey()
+    private var geminiApiKey: String = GeminiApiKeyStore.read(application)
     private var elevenLabsApiKey: String = secureKeyStore.read(SECURE_ELEVENLABS_KEY).orEmpty()
 
     private val _hasGeminiKey = MutableStateFlow(geminiApiKey.isNotBlank())
@@ -82,6 +83,8 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     val isThinking: StateFlow<Boolean> = _isThinking.asStateFlow()
 
     private var liveSession: GeminiLiveVoiceSession? = null
+    private val pendingLiveTextLock = Any()
+    private val pendingLiveTexts = java.util.ArrayDeque<String>()
 
     init {
         loadChannels()
@@ -125,14 +128,13 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
     fun saveGeminiKey(key: String) {
         val cleaned = key.trim()
-        secureKeyStore.write(SECURE_GEMINI_KEY, cleaned)
+        GeminiApiKeyStore.write(getApplication(), cleaned)
         geminiApiKey = cleaned
         _hasGeminiKey.value = cleaned.isNotBlank()
     }
 
     fun clearGeminiKey() {
-        secureKeyStore.remove(SECURE_GEMINI_KEY)
-        prefs.edit().remove(LEGACY_GEMINI_KEY).apply()
+        GeminiApiKeyStore.clear(getApplication())
         geminiApiKey = ""
         _hasGeminiKey.value = false
     }
@@ -168,6 +170,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         }
 
         liveSession?.stop()
+        synchronized(pendingLiveTextLock) { pendingLiveTexts.clear() }
         _liveMessages.value = emptyList()
         _liveUserDraft.value = ""
         _liveAssistantDraft.value = ""
@@ -193,7 +196,17 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             listener = object : com.droidcraft.app.ai.LiveVoiceSessionListener {
                 override fun onStatus(status: LiveConversationStatus, message: String?) {
                     _liveStatus.value = status
-                    if (message != null) _liveNotice.value = message
+                    if (message != null) {
+                        _liveNotice.value = message
+                    } else if (status == LiveConversationStatus.LISTENING &&
+                        _liveNotice.value?.startsWith("Connecting Live Talk", ignoreCase = true) == true
+                    ) {
+                        _liveNotice.value = null
+                    }
+                    if (status == LiveConversationStatus.LISTENING) flushPendingLiveTexts()
+                    if (status == LiveConversationStatus.ERROR) {
+                        synchronized(pendingLiveTextLock) { pendingLiveTexts.clear() }
+                    }
                 }
 
                 override fun onUserTranscript(text: String, isFinal: Boolean) {
@@ -232,24 +245,52 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     fun stopLiveConversation() {
         liveSession?.stop()
         liveSession = null
+        synchronized(pendingLiveTextLock) { pendingLiveTexts.clear() }
         _liveEffectiveVoice.value = null
         _liveUserDraft.value = ""
         _liveAssistantDraft.value = ""
+        _liveNotice.value = null
     }
 
     fun showLiveNotice(message: String) {
         _liveNotice.value = message
     }
 
-    fun sendLiveText(text: String) {
+    /** Sends typed text during Live Talk; while connecting, queue it and show it immediately. */
+    fun sendLiveText(text: String): Boolean {
         val clean = text.trim()
-        if (clean.isBlank()) return
+        if (clean.isBlank()) return false
         val session = liveSession
-        if (session == null || !session.sendText(clean)) {
-            _liveNotice.value = "Connect Live Talk before sending a message."
-            return
+        if (session == null) {
+            _liveNotice.value = "Start Live Talk before sending a message to the live conversation."
+            return false
         }
-        appendLiveMessage(clean, isUser = true)
+        if (session.sendText(clean)) {
+            appendLiveMessage(clean, isUser = true)
+            return true
+        }
+        if (_liveStatus.value == LiveConversationStatus.CONNECTING) {
+            synchronized(pendingLiveTextLock) { pendingLiveTexts.addLast(clean) }
+            appendLiveMessage(clean, isUser = true)
+            _liveNotice.value = "Connecting Live Talk. Your typed message will send as soon as the session is ready."
+            return true
+        }
+        _liveNotice.value = "Live Talk is not ready to send text. Reconnect and try again."
+        return false
+    }
+
+    private fun flushPendingLiveTexts() {
+        val session = liveSession ?: return
+        while (true) {
+            val next = synchronized(pendingLiveTextLock) {
+                if (pendingLiveTexts.isEmpty()) null else pendingLiveTexts.removeFirst()
+            } ?: return
+            if (!session.sendText(next)) {
+                synchronized(pendingLiveTextLock) { pendingLiveTexts.addFirst(next) }
+                _liveNotice.value = "Live Talk is connected, but a typed message could not be sent. Try again."
+                return
+            }
+        }
     }
 
     fun sendAssistantMessage(userText: String) {
@@ -272,16 +313,6 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
                 _isThinking.value = false
             }
         }
-    }
-
-    private fun loadGeminiKey(): String {
-        val encrypted = secureKeyStore.read(SECURE_GEMINI_KEY)
-        val legacy = prefs.getString(LEGACY_GEMINI_KEY, "").orEmpty()
-        if (legacy.isNotBlank()) prefs.edit().remove(LEGACY_GEMINI_KEY).apply()
-        if (encrypted != null) return encrypted
-        if (legacy.isBlank()) return ""
-        secureKeyStore.write(SECURE_GEMINI_KEY, legacy)
-        return legacy
     }
 
     private fun appendLiveMessage(text: String, isUser: Boolean) {
@@ -317,9 +348,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private companion object {
-        const val SECURE_GEMINI_KEY = "gemini_api_key"
         const val SECURE_ELEVENLABS_KEY = "elevenlabs_api_key"
-        const val LEGACY_GEMINI_KEY = "gemini_key"
         const val PREF_LIVE_VOICE_MODE = "live_voice_mode"
     }
 }

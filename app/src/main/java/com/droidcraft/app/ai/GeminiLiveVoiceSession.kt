@@ -10,10 +10,13 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.util.Base64
 import com.droidcraft.app.model.LiveConversationStatus
 import com.droidcraft.app.model.LiveVoiceMode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,6 +56,7 @@ internal class GeminiLiveVoiceSession(
     private val appContext = context.applicationContext
     private val stopped = AtomicBoolean(false)
     private val client = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
@@ -60,6 +64,9 @@ internal class GeminiLiveVoiceSession(
     private val elevenLabsTtsClient = ElevenLabsTtsClient(elevenLabsApiKey)
     private val responseScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val synthesisMutex = Mutex()
+
+    @Volatile
+    private var elevenLabsSynthesisJob: Job? = null
 
     @Volatile
     private var webSocket: WebSocket? = null
@@ -92,6 +99,12 @@ internal class GeminiLiveVoiceSession(
         if (stopped.get()) return
         listener.onStatus(LiveConversationStatus.CONNECTING)
         listener.onEffectiveVoiceChanged(activeVoice)
+        responseScope.launch {
+            delay(CONNECTION_TIMEOUT_MS)
+            if (!setupComplete && !stopped.get()) {
+                fail("Gemini Live timed out while connecting. Check your network, API key, and Live API access, then retry.")
+            }
+        }
 
         val httpsUrl = HttpUrl.Builder()
             .scheme("https")
@@ -106,7 +119,7 @@ internal class GeminiLiveVoiceSession(
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (!webSocket.send(buildSetupMessage())) {
-                    fail("Gemini Live could not start. Check your network and API key.")
+                    fail("Gemini Live connected, but its setup message could not be sent. Please retry.")
                 }
             }
 
@@ -116,12 +129,22 @@ internal class GeminiLiveVoiceSession(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (!stopped.get()) {
-                    fail("Gemini Live connection failed. Check the API key, network, and Live API access.")
+                    val responseText = runCatching { response?.body?.string().orEmpty() }.getOrDefault("")
+                    val providerMessage = extractProviderMessage(responseText)
+                    val code = response?.code?.let { " (HTTP $it)" }.orEmpty()
+                    val detail = providerMessage.ifBlank { t.localizedMessage.orEmpty() }
+                    fail(
+                        if (detail.isNotBlank()) "Gemini Live connection failed$code: $detail"
+                        else "Gemini Live connection failed$code. Check your network, API key, and Live API access."
+                    )
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (!stopped.get()) fail("Gemini Live ended the connection. Start a new conversation to reconnect.")
+                if (!stopped.get()) {
+                    val detail = reason.takeIf { it.isNotBlank() } ?: "The provider closed the session."
+                    fail("Gemini Live ended the connection (code $code): $detail Start a new conversation to reconnect.")
+                }
             }
         })
     }
@@ -202,12 +225,33 @@ internal class GeminiLiveVoiceSession(
             .toString()
     }
 
+    private fun extractProviderMessage(serialized: String): String {
+        if (serialized.isBlank()) return ""
+        val json = runCatching { JSONObject(serialized) }.getOrNull() ?: return serialized.trim().take(320)
+        val error = json.optJSONObject("error") ?: return serialized.trim().take(320)
+        val message = error.optString("message").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+        val status = error.optString("status").takeIf { it.isNotBlank() && it != "null" }
+        return listOfNotNull(message, status?.let { "[$it]" }).joinToString(" ")
+    }
+
     private fun handleServerMessage(serialized: String) {
         if (stopped.get()) return
         val message = runCatching { JSONObject(serialized) }.getOrNull() ?: return
 
-        if (message.has("error")) {
-            fail("Gemini Live could not continue this conversation. Check your API key and Live API access.")
+        message.optJSONObject("error")?.let { error ->
+            val providerMessage = error.optString("message").takeIf { it.isNotBlank() }
+                ?: "The Gemini Live provider returned an error."
+            val code = error.optInt("code", 0).takeIf { it > 0 }?.let { " (HTTP $it)" }.orEmpty()
+            fail("Gemini Live error$code: $providerMessage")
+            return
+        }
+        if (message.has("goAway")) {
+            val timeLeft = message.optJSONObject("goAway")?.optString("timeLeft")
+                ?.takeIf { it.isNotBlank() }
+            fail(
+                if (timeLeft != null) "Gemini Live is ending this session (time left: $timeLeft). Reconnect to continue."
+                else "Gemini Live is ending this session. Reconnect to continue."
+            )
             return
         }
         if (message.has("setupComplete")) {
@@ -217,6 +261,16 @@ internal class GeminiLiveVoiceSession(
         }
 
         val serverContent = message.optJSONObject("serverContent") ?: return
+        if (serverContent.optBoolean("interrupted", false)) {
+            elevenLabsSynthesisJob?.cancel()
+            audioPlayer.flush()
+            currentGeminiAudio.reset()
+            currentTurnHadAudio = false
+            outputTranscript.setLength(0)
+            modelText.setLength(0)
+            listener.onAssistantDraft("")
+            listener.onStatus(LiveConversationStatus.LISTENING)
+        }
         val inputText = serverContent.optJSONObject("inputTranscription")?.optString("text").orEmpty()
         if (inputText.isNotBlank()) {
             appendTranscript(inputTranscript, inputText)
@@ -292,7 +346,8 @@ internal class GeminiLiveVoiceSession(
 
         if (activeVoice == LiveVoiceMode.ELEVENLABS) {
             listener.onStatus(LiveConversationStatus.SPEAKING)
-            responseScope.launch {
+            elevenLabsSynthesisJob?.cancel()
+            elevenLabsSynthesisJob = responseScope.launch {
                 synthesisMutex.withLock {
                     if (stopped.get()) return@withLock
                     if (activeVoice != LiveVoiceMode.ELEVENLABS) {
@@ -309,6 +364,8 @@ internal class GeminiLiveVoiceSession(
                         if (!stopped.get()) {
                             audioPlayer.enqueue(speech) { reportListeningIfActive() }
                         }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
                     } catch (_: Exception) {
                         if (!stopped.get()) {
                             switchToGemini(
@@ -448,7 +505,8 @@ internal class GeminiLiveVoiceSession(
     }
 
     private companion object {
-        const val LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+        const val LIVE_MODEL = "models/gemini-3.8-live"
+        const val CONNECTION_TIMEOUT_MS = 20_000L
         const val GEMINI_PRESET_VOICE = "Aoede"
         const val INPUT_SAMPLE_RATE = 16_000
         const val INPUT_CHUNK_BYTES = 2_048

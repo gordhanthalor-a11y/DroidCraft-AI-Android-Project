@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -195,12 +196,23 @@ fun LiveConversationScreen(
                 onValueChange = { textInput = it },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
-                placeholder = { Text("Type during the conversation...") }
+                placeholder = { Text("Type during the conversation...") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
             )
             IconButton(
                 onClick = {
-                    if (textInput.isNotBlank()) {
-                        viewModel.sendLiveText(textInput)
+                    val message = textInput.trim()
+                    if (message.isNotEmpty() && viewModel.sendLiveText(message)) {
                         textInput = ""
                     }
                 },

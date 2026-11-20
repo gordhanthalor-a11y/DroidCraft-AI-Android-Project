@@ -4,28 +4,40 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.AudioTrack.WRITE_BLOCKING
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Single-threaded PCM output queue shared by Gemini's live audio and ElevenLabs PCM audio. */
 internal class PcmAudioPlayer {
     private val closed = AtomicBoolean(false)
-    private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "droidcraft-live-audio").apply { isDaemon = true }
-    }
+    private val executor = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        LinkedBlockingQueue(),
+        ThreadFactory { runnable -> Thread(runnable, "droidcraft-live-audio").apply { isDaemon = true } }
+    )
 
-    // Accessed only on executor's thread.
+    @Volatile
     private var track: AudioTrack? = null
+
+    private val playbackGeneration = AtomicLong(0)
 
     fun enqueue(pcm: ByteArray, afterPlayback: (() -> Unit)? = null) {
         if (closed.get()) return
+        val generation = playbackGeneration.get()
         runCatching {
             executor.execute {
                 try {
-                    if (!closed.get() && pcm.isNotEmpty()) {
+                    if (!closed.get() && generation == playbackGeneration.get() && pcm.isNotEmpty()) {
                         val output = getOrCreateTrack()
                         var offset = 0
-                        while (!closed.get() && offset < pcm.size) {
+                        while (!closed.get() && generation == playbackGeneration.get() && offset < pcm.size) {
                             val written = output.write(pcm, offset, pcm.size - offset, WRITE_BLOCKING)
                             if (written <= 0) break
                             offset += written
@@ -34,8 +46,22 @@ internal class PcmAudioPlayer {
                 } catch (_: Exception) {
                     // Keep the live session alive if this device cannot initialize or write PCM audio.
                 } finally {
-                    afterPlayback?.invoke()
+                    if (!closed.get() && generation == playbackGeneration.get()) afterPlayback?.invoke()
                 }
+            }
+        }
+    }
+
+    /** Drops queued audio and stops any chunk currently playing after a server-side interruption. */
+    fun flush() {
+        if (closed.get()) return
+        playbackGeneration.incrementAndGet()
+        executor.queue.clear()
+        runCatching {
+            track?.let { output ->
+                output.pause()
+                output.flush()
+                output.play()
             }
         }
     }
@@ -43,11 +69,18 @@ internal class PcmAudioPlayer {
     /** Queues a callback after any audio already submitted has played. */
     fun afterQueuedAudio(block: () -> Unit) {
         if (closed.get()) return
-        runCatching { executor.execute(block) }
+        val generation = playbackGeneration.get()
+        runCatching {
+            executor.execute {
+                if (!closed.get() && generation == playbackGeneration.get()) block()
+            }
+        }
     }
 
     fun close() {
         if (!closed.compareAndSet(false, true)) return
+        playbackGeneration.incrementAndGet()
+        executor.queue.clear()
         runCatching {
             executor.execute {
                 runCatching { track?.pause() }

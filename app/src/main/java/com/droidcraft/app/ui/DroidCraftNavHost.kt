@@ -12,19 +12,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -55,40 +59,55 @@ fun DroidCraftNavHost(
 ) {
     val navController = rememberNavController()
     val tabs = listOf(
-        NavTab("pipeline", "Pipeline", Icons.Default.List),
+        NavTab("jarvis", "Jarvis", Icons.Default.AutoAwesome),
+        NavTab("studio", "Studio", Icons.Default.Mic),
         NavTab("assistant", "Chat", Icons.Default.Face),
-        NavTab("live", "Live Talk", Icons.Default.Mic),
-        NavTab("dubbing", "Dubbing", Icons.Default.PlayArrow),
-        NavTab("settings", "Settings", Icons.Default.Settings)
+        NavTab("live", "Live Talk", Icons.Default.GraphicEq),
+        NavTab("more", "More", Icons.Default.MoreHoriz)
     )
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                tabs.forEach { tab ->
-                    NavigationBarItem(
-                        selected = current == tab.route,
-                        onClick = {
-                            navController.navigate(tab.route) {
-                                popUpTo("live") { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) }
-                    )
+            // The supplied JARVIS HUD already has its own control dock. Keep the
+            // Material navigation bar for the other app screens only.
+            if (current != "jarvis") {
+                NavigationBar {
+                    tabs.forEach { tab ->
+                        NavigationBarItem(
+                            selected = current == tab.route,
+                            onClick = {
+                                navController.navigate(tab.route) {
+                                    popUpTo("jarvis") { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) }
+                        )
+                    }
                 }
             }
         }
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "live",
+            startDestination = "jarvis",
             modifier = Modifier.padding(padding)
         ) {
+            composable("jarvis") {
+                JarvisScreen(
+                    liveViewModel = viewModel,
+                    onOpenStudio = { navController.navigate("studio") },
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenChat = { navController.navigate("assistant") },
+                    onOpenMore = { navController.navigate("more") }
+                )
+            }
+            composable("social") { com.droidcraft.app.social.ui.SocialHubScreen() }
+            composable("studio") { com.droidcraft.app.studio.ui.StudioHubScreen() }
             composable("pipeline") { PipelineScreen(viewModel) }
             composable("assistant") {
                 AssistantScreen(
@@ -103,15 +122,38 @@ fun DroidCraftNavHost(
                     onOpenSettings = { navController.navigate("settings") }
                 )
             }
-            composable("dubbing") { RedNoteDubbingScreen(videoUrl = "", onExportRequested = {}) }
+            composable("dubbing") { com.droidcraft.app.studio.ui.DubbingScreen() }
             composable("settings") {
                 SettingsScreen(viewModel) {
                     navController.navigate("live") {
-                        popUpTo("live") { saveState = true }
+                        popUpTo("jarvis") { saveState = true }
                         launchSingleTop = true
-                        restoreState = true
                     }
                 }
+            }
+            composable("more") {
+                MoreScreen { route -> navController.navigate(route) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreScreen(onNavigate: (String) -> Unit) {
+    val destinations = listOf(
+        "social" to "Social Hub",
+        "pipeline" to "Video Pipeline",
+        "dubbing" to "Dubbing",
+        "settings" to "Settings"
+    )
+    Column(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("More tools", style = MaterialTheme.typography.headlineSmall)
+        destinations.forEach { (route, label) ->
+            Button(onClick = { onNavigate(route) }, modifier = Modifier.fillMaxWidth()) {
+                Text(label)
             }
         }
     }
@@ -132,10 +174,7 @@ fun AssistantScreen(
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("AI Creator Assistant", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = onOpenSettings) {
-                Icon(Icons.Default.Settings, contentDescription = null)
-                Text(" Settings")
-            }
+            TextButton(onClick = onOpenSettings) { Text("Settings") }
         }
         if (!hasGeminiKey) {
             Surface(
@@ -170,7 +209,11 @@ fun AssistantScreen(
                         shape = RoundedCornerShape(12.dp),
                         color = if (msg.isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        Text(msg.text, modifier = Modifier.padding(10.dp))
+                        Text(
+                            msg.text,
+                            modifier = Modifier.padding(10.dp),
+                            color = if (msg.isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -183,17 +226,29 @@ fun AssistantScreen(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Hindi ya English mein likhiye...") }
+                placeholder = { Text("Hindi ya English mein likhiye...") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
             )
             IconButton(onClick = onTriggerVoiceInput) {
                 Icon(Icons.Default.Mic, contentDescription = "Voice input")
             }
-            IconButton(onClick = {
-                if (input.isNotBlank()) {
-                    viewModel.sendAssistantMessage(input.trim())
-                    input = ""
-                }
-            }) {
+            IconButton(
+                onClick = {
+                    if (input.isNotBlank()) {
+                        viewModel.sendAssistantMessage(input.trim())
+                        input = ""
+                    }
+                },
+                enabled = input.isNotBlank()
+            ) {
                 Icon(Icons.Default.Send, contentDescription = "Send")
             }
         }

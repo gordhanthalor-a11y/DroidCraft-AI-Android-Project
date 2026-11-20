@@ -36,10 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.droidcraft.app.model.LiveVoiceMode
+import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
 
 @Composable
@@ -47,9 +49,13 @@ fun SettingsScreen(
     viewModel: YouTubeAutomationViewModel,
     onOpenLiveTalk: () -> Unit
 ) {
+    val context = LocalContext.current
     val selectedVoice by viewModel.liveVoiceMode.collectAsState()
     val hasGeminiKey by viewModel.hasGeminiKey.collectAsState()
     val hasElevenLabsKey by viewModel.hasElevenLabsKey.collectAsState()
+    var studioServerUrl by remember { mutableStateOf(StudioSettings.serverUrl(context)) }
+    var studioServerMessage by remember { mutableStateOf("") }
+    var studioServerSaved by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -135,6 +141,58 @@ fun SettingsScreen(
             onSave = viewModel::saveElevenLabsKey,
             onRemove = viewModel::clearElevenLabsKey
         )
+
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Creator Studio server", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Voice Studio, Dubbing, Clipper, and advanced QC need the deployed Python service. Enter its HTTPS base URL; localhost and emulator addresses will not work on a physical phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = studioServerUrl,
+                    onValueChange = {
+                        studioServerUrl = it
+                        studioServerMessage = ""
+                        studioServerSaved = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Base URL") },
+                    placeholder = { Text("https://your-studio-server.example") }
+                )
+                Button(
+                    onClick = {
+                        if (studioServerUrl.isBlank()) {
+                            StudioSettings.setServerUrl(context, "")
+                            studioServerMessage = "Creator Studio server URL cleared."
+                            studioServerSaved = true
+                        } else {
+                            runCatching { StudioSettings.validateServerUrl(studioServerUrl) }
+                                .onSuccess { cleanedUrl ->
+                                    StudioSettings.setServerUrl(context, cleanedUrl)
+                                    studioServerUrl = cleanedUrl
+                                    studioServerMessage = "Creator Studio server saved."
+                                    studioServerSaved = true
+                                }
+                                .onFailure {
+                                    studioServerMessage = it.message.orEmpty()
+                                    studioServerSaved = false
+                                }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Save server URL") }
+                if (studioServerMessage.isNotBlank()) {
+                    Text(
+                        studioServerMessage,
+                        color = if (studioServerSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
 
         Text(
             "Voice choice changes apply to the next conversation. The active ElevenLabs choice is not replaced in Settings if a session falls back to Gemini.",

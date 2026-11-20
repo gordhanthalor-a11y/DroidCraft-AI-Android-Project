@@ -9,6 +9,17 @@
     
     <!-- AI Voice Input Permission -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Jarvis Flashlight (torch) ke liye -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+
+    <!-- Jarvis "Hey Jarvis" background wake-word listening -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Jarvis contacts se call/SMS by name -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     
     <!-- Android 13+ Notification Alert Permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -17,6 +28,35 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.ACCESS_EXACT_ALARM" />
+
+    <!-- Android 11+ package visibility: Jarvis ko installed apps, browser, dialer aur alarm dekhne ke liye -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".DroidCraftApp"
@@ -50,6 +90,53 @@
                     android:pathPrefix="/oauth2/callback" />
             </intent-filter>
         </activity>
+
+        <!-- Social OAuth redirect receiver -->
+        <activity
+            android:name=".social.auth.OAuthRedirectActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="localhost" android:pathPrefix="/oauth2callback" />
+            </intent-filter>
+        </activity>
+
+        <!-- Jarvis screen automation (accessibility) -->
+        <service
+            android:name=".jarvis.a11y.JarvisAccessibilityService"
+            android:exported="true"
+            android:label="Jarvis Automation"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/jarvis_accessibility_service" />
+        </service>
+
+        <!-- Jarvis "Hey Jarvis" wake-word foreground service -->
+        <service
+            android:name=".jarvis.wake.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false" />
+
+        <!-- FileProvider — MP3/video share के लिए -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- WorkManager initialization -->
         <provider
