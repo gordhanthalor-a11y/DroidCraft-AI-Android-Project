@@ -82,7 +82,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         val type = intent?.type ?: JarvisIntentType.UNKNOWN
 
         if (type == JarvisIntentType.MEMORY) {
-            val name = intent.args["name"]?.trim().orEmpty()
+            val name = intent?.args?.get("name")?.trim().orEmpty()
             if (name.isNotEmpty()) {
                 prefs.edit().putString("jarvis_user_name", name).apply()
                 _userName.value = name

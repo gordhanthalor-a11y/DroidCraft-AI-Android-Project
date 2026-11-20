@@ -1,11 +1,11 @@
 package com.droidcraft.app.jarvis
 
-import android.app.AlarmClock
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
+import android.provider.AlarmClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import kotlinx.coroutines.Dispatchers
@@ -155,7 +155,7 @@ class JarvisDevice(private val context: Context) {
         }.filter { it.third >= 20 }.maxByOrNull { it.third }
 
         if (best != null) {
-            return launch(best.second, "${best.first} khol raha hoon.")
+            return openIntent(best.second, "${best.first} khol raha hoon.")
         }
         // Device par nahi mila — Play Store par dhoondo
         val store = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=${urlEncode(q)}&c=apps"))
