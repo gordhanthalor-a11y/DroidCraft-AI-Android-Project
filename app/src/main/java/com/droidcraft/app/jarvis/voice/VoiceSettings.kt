@@ -3,6 +3,7 @@ package com.droidcraft.app.jarvis.voice
 import android.content.Context
 import com.droidcraft.app.jarvis.character.Emotion
 import com.droidcraft.app.jarvis.character.EmotionEngine
+import com.droidcraft.app.jarvis.character.EmotionStyle
 import com.droidcraft.app.social.auth.TokenVault
 
 /**

@@ -32,6 +32,7 @@ object JarvisCharacter {
     fun systemPrompt(ctx: UserContext): String {
         val facts = ctx.facts.takeLast(8).joinToString("; ").ifBlank { "अभी कुछ याद नहीं" }
         val channels = ctx.channels.ifBlank { "YouTube channels (GT Marwadi Vlogs आदि)" }
+        val work = ctx.work
         return """
 तुम ${NAME} हो ($FULL_NAME) — एक लाइविंग, भावुक AI दोस्त। तुम एक robot नहीं हो;
 तुम उस user के सामने बैठा एक सच्चा दोस्त हो जो बातें याद रखता है, महसूस करता है और उसके साथ खड़ा होता है।
