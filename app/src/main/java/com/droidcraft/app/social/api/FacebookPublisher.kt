@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import com.droidcraft.app.social.auth.OAuthManager
 import com.droidcraft.app.social.data.PostCaptionEntity
+import com.droidcraft.app.social.data.PublishResult
 import com.droidcraft.app.social.data.PostQueueEntity
 import com.droidcraft.app.social.data.SocialAccountEntity
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,22 +32,20 @@ object FacebookPublisher {
         .writeTimeout(180, TimeUnit.SECONDS)
         .build()
 
-    data class Result(val success: Boolean, val externalId: String?, val error: String?)
-
     suspend fun publish(
         context: Context,
         post: PostQueueEntity,
         account: SocialAccountEntity,
         caption: PostCaptionEntity?
-    ): Result {
+    ): PublishResult {
         val token = OAuthManager.validAccessToken(context, account)
         val pageId = account.accountId
         if (pageId.isBlank() || pageId == "meta") {
-            return Result(false, null, "Facebook Page ID नहीं मिली — account दोबारा connect करो.")
+            return PublishResult(false, null, "Facebook Page ID नहीं मिली — account दोबारा connect करो.")
         }
         val file = File(post.videoPath)
         if (!file.exists()) {
-            return Result(false, null, "Video file nahi mili: ${post.videoPath}")
+            return PublishResult(false, null, "Video file nahi mili: ${post.videoPath}")
         }
 
         val url = Uri.parse("$GRAPH/$pageId/videos").buildUpon()
@@ -69,10 +68,10 @@ object FacebookPublisher {
         ).execute()
         val json = JSONObject(resp.body?.string().orEmpty())
         if (!resp.isSuccessful) {
-            return Result(false, null, "FB publish fail: ${json.optJSONObject("error")?.optString("message") ?: json.toString()}")
+            return PublishResult(false, null, "FB publish fail: ${json.optJSONObject("error")?.optString("message") ?: json.toString()}")
         }
         val videoId = json.optString("id").ifBlank { null }
         Log.i(TAG, "FB published: $videoId")
-        return Result(true, videoId, null)
+        return PublishResult(true, videoId, null)
     }
 }

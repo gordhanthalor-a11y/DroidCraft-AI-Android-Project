@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.droidcraft.app.social.auth.OAuthManager
 import com.droidcraft.app.social.data.PostCaptionEntity
+import com.droidcraft.app.social.data.PublishResult
 import com.droidcraft.app.social.data.PostQueueEntity
 import com.droidcraft.app.social.data.SocialAccountEntity
 import okhttp3.FormBody
@@ -26,18 +27,16 @@ object InstagramPublisher {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    data class Result(val success: Boolean, val externalId: String?, val error: String?)
-
     suspend fun publish(
         context: Context,
         post: PostQueueEntity,
         account: SocialAccountEntity,
         caption: PostCaptionEntity?
-    ): Result {
+    ): PublishResult {
         val token = OAuthManager.validAccessToken(context, account)
         val igUserId = account.accountId
         if (igUserId.isBlank() || igUserId == "meta") {
-            return Result(false, null, "Instagram user ID नहीं मिली — account दोबारा connect करो.")
+            return PublishResult(false, null, "Instagram user ID नहीं मिली — account दोबारा connect करो.")
         }
         val captionText = caption?.caption ?: post.description
 
@@ -45,7 +44,7 @@ object InstagramPublisher {
         //    local file को पहले relay/server या किसी CDN पर रखना होता है — यहाँ
         //    server-sync mode में file URL relay से मिलता है)
         val videoUrl = post.videoPath.takeIf { it.startsWith("http") }
-            ?: return Result(false, null, "Instagram Graph API को publicly reachable video URL चाहिए. Server relay use करो (SOCIAL_SETUP.md §F).")
+            ?: return PublishResult(false, null, "Instagram Graph API को publicly reachable video URL चाहिए. Server relay use करो (SOCIAL_SETUP.md §F).")
 
         val containerUrl = "$GRAPH/$igUserId/media"
         val form = FormBody.Builder()
@@ -59,11 +58,11 @@ object InstagramPublisher {
         ).execute()
         val createJson = JSONObject(createResp.body?.string().orEmpty())
         if (!createResp.isSuccessful) {
-            return Result(false, null, "IG container fail: ${createJson.optJSONObject("error")?.optString("message") ?: createJson.toString()}")
+            return PublishResult(false, null, "IG container fail: ${createJson.optJSONObject("error")?.optString("message") ?: createJson.toString()}")
         }
         val creationId = createJson.optString("id")
         if (creationId.isBlank()) {
-            return Result(false, null, "IG creation_id नहीं मिला.")
+            return PublishResult(false, null, "IG creation_id नहीं मिला.")
         }
 
         // 2) publish
@@ -77,13 +76,13 @@ object InstagramPublisher {
         ).execute()
         val pubJson = JSONObject(pubResp.body?.string().orEmpty())
         if (!pubResp.isSuccessful) {
-            return Result(false, null, "IG publish fail: ${pubJson.optJSONObject("error")?.optString("message") ?: pubJson.toString()}")
+            return PublishResult(false, null, "IG publish fail: ${pubJson.optJSONObject("error")?.optString("message") ?: pubJson.toString()}")
         }
         val mediaId = pubJson.optString("id").ifBlank { creationId }
 
         // 3) status verify
         val status = checkStatus(token, mediaId)
-        return Result(true, mediaId, null).also {
+        return PublishResult(true, mediaId, null).also {
             Log.i(TAG, "IG published: $mediaId status=$status")
         }
     }

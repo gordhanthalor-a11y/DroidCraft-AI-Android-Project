@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.droidcraft.app.social.auth.OAuthManager
 import com.droidcraft.app.social.data.PostCaptionEntity
+import com.droidcraft.app.social.data.PublishResult
 import com.droidcraft.app.social.data.PostQueueEntity
 import com.droidcraft.app.social.data.SocialAccountEntity
 import kotlinx.coroutines.Dispatchers
@@ -34,15 +35,13 @@ object YouTubePublisher {
         .writeTimeout(120, TimeUnit.SECONDS)
         .build()
 
-    data class Result(val success: Boolean, val externalId: String?, val error: String?)
-
     /** Poora publish: upload → metadata → thumbnail → verify. */
     suspend fun publish(
         context: Context,
         post: PostQueueEntity,
         account: SocialAccountEntity,
         caption: PostCaptionEntity?
-    ): Result = withContext(Dispatchers.IO) {
+    ): PublishResult = withContext(Dispatchers.IO) {
         val token = OAuthManager.validAccessToken(context, account)
         val title = (caption?.title ?: post.title).take(100)
         val description = buildString {
@@ -56,7 +55,7 @@ object YouTubePublisher {
         // 1) resumable upload session बनाओ
         val file = File(post.videoPath)
         if (!file.exists()) {
-            return@withContext Result(false, null, "Video file nahi mili: ${post.videoPath}")
+            return@withContext PublishResult(false, null, "Video file nahi mili: ${post.videoPath}")
         }
 
         val meta = JSONObject().apply {
@@ -84,10 +83,10 @@ object YouTubePublisher {
         ).execute()
         if (!initResp.isSuccessful) {
             val err = initResp.body?.string().orEmpty()
-            return@withContext Result(false, null, "Upload init fail: $err")
+            return@withContext PublishResult(false, null, "Upload init fail: $err")
         }
         val sessionUrl = initResp.header("Location")
-            ?: return@withContext Result(false, null, "Upload session URL nahi mila")
+            ?: return@withContext PublishResult(false, null, "Upload session URL nahi mila")
 
         // 2) chunked upload (progress के साथ)
         val total = file.length()
@@ -115,7 +114,7 @@ object YouTubePublisher {
                 val resp = client.newCall(req).execute()
                 if (!resp.isSuccessful) {
                     val err = resp.body?.string().orEmpty()
-                    return@withContext Result(false, null, "Upload chunk fail ($uploaded/$total): $err")
+                    return@withContext PublishResult(false, null, "Upload chunk fail ($uploaded/$total): $err")
                 }
                 uploaded = end
                 if (resp.code == 200 || resp.code == 201) {
@@ -140,9 +139,9 @@ object YouTubePublisher {
             videoId = verifyByTitle(token, title)
         }
         if (videoId.isNullOrBlank()) {
-            return@withContext Result(false, null, "Upload to ho gaya, lekin video ID नहीं मिल सकी.")
+            return@withContext PublishResult(false, null, "Upload to ho gaya, lekin video ID नहीं मिल सकी.")
         }
-        Result(true, videoId, null)
+        PublishResult(true, videoId, null)
     }
 
     private fun setThumbnail(token: String, videoId: String?, path: String) = runCatching {
@@ -178,13 +177,14 @@ object YouTubePublisher {
     /** Quota जाँच — दिन भर में कितने units बचे (best-effort). */
     suspend fun quotaLeft(context: Context, account: SocialAccountEntity): Int {
         val token = OAuthManager.validAccessToken(context, account)
-        return runCatching {
-            val url = "$API/videos?part=id&forMine=true&maxResults=1"
+        val url = "$API/videos?part=id&forMine=true&maxResults=1"
+        val ok = runCatching {
             val resp = client.newCall(
                 Request.Builder().url(url).header("Authorization", "Bearer $token").build()
             ).execute()
-            // X-RateLimit-Remaining header Google पर नहीं आता; यहाँ सिर्फ़ availability जाँच
-            if (resp.isSuccessful) 10000 else 0
-        }.getOrDefault(-1)
+            resp.isSuccessful
+        }.getOrDefault(false)
+        // X-RateLimit-Remaining header Google पर नहीं आता; यहाँ सिर्फ़ availability जाँच
+        return if (ok) 10000 else 0
     }
 }

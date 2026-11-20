@@ -10,6 +10,7 @@ import com.droidcraft.app.social.api.InstagramPublisher
 import com.droidcraft.app.social.api.YouTubePublisher
 import com.droidcraft.app.data.local.AppDatabase
 import com.droidcraft.app.social.data.PublishHistoryEntity
+import com.droidcraft.app.social.data.PublishResult
 import com.droidcraft.app.social.data.SocialPlatform
 import com.droidcraft.app.social.data.SocialStatus
 
@@ -49,7 +50,7 @@ class PublishWorker(
             SocialPlatform.YOUTUBE -> YouTubePublisher.publish(applicationContext, post, account, caption)
             SocialPlatform.INSTAGRAM -> InstagramPublisher.publish(applicationContext, post, account, caption)
             SocialPlatform.FACEBOOK -> FacebookPublisher.publish(applicationContext, post, account, caption)
-            else -> InstagramPublisher.Result(false, null, "Unknown platform")
+            else -> PublishResult(false, null, "Unknown platform")
         }
 
         if (result.success && result.externalId != null) {
