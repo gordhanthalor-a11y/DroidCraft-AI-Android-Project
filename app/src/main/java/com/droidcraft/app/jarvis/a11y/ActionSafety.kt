@@ -13,12 +13,25 @@ object ActionSafety {
     }
 
     private val prohibitedTapPhrases = listOf(
+        "transfer", "like", "subscribe", "follow", "unfollow", "donate",
+        "पैसे भेज", "लाइक", "सब्स्क्राइब", "फॉलो"
+    )
+
+    /** Send controls in messaging apps: allowed only when the user explicitly asked to send. */
+    private val sendTapPhrases = listOf(
+        "send", "send message", "send sms", "send text", "send now",
+        "भेजें", "भेजो", "भेजना", "भेज"
+    )
+
+    /** Purchase/payment controls: allowed only after the user's explicit spoken consent to pay. */
+    private val paymentTapPhrases = listOf(
         "purchase", "buy", "buy now", "checkout", "payment", "pay", "pay now",
-        "google pay", "gpay", "phonepe", "paytm", "upi", "transfer", "send",
-        "send message", "send sms", "send text", "send now", "like", "subscribe",
-        "follow", "unfollow", "place order", "order now", "donate",
-        "खरीद", "भुगतान", "पेमेंट", "पैसे भेज", "भेजें", "भेजो", "भेजना",
-        "लाइक", "सब्सक्राइब", "फॉलो", "ऑर्डर"
+        "google pay", "gpay", "phonepe", "paytm", "upi", "place order", "order now",
+        "खरीद", "भुगतान", "पेमेंट", "अ़र्डर"
+    )
+
+    private val messagingPackageMarkers = listOf(
+        "whatsapp", "telegram", "messenger", "instagram", "mms", "messaging", "sms"
     )
 
     private val confirmationPhrases = listOf(
@@ -57,20 +70,43 @@ object ActionSafety {
     fun assessTap(label: String): TapDecision = assessTap(label, packageName = null, applicationLabel = null)
 
     /** The active package and app label are independent of the requested target and cannot be overridden. */
-    fun assessTap(label: String, packageName: String?, applicationLabel: String? = null): TapDecision {
-        if (isFinancialOrPaymentApp(packageName, applicationLabel)) {
+    fun assessTap(label: String, packageName: String?, applicationLabel: String? = null, userText: String = ""): TapDecision {
+        if (isFinancialOrPaymentApp(packageName, applicationLabel) {
             return TapDecision.Blocked(
                 "For safety, Jarvis will not inject taps in banking or payment apps. Please use the app directly."
             )
         }
         val normalized = normalize(label)
         if (normalized.isBlank()) return TapDecision.Blocked("There is no visible label to tap.")
+        val sendPhrase = sendTapPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
+        if (sendPhrase != null) {
+            val pkg = packageName.orEmpty().lowercase(Locale.ROOT)
+            val inMessagingApp = messagingPackageMarkers.any { pkg.contains(it) }
+            return if (inMessagingApp && explicitlyAskedToSend(userText)) {
+                TapDecision.Allowed
+            } else {
+                TapDecision.RequiresConfirmation(
+                    "This control sends a message ($sendPhrase). Confirm on screen only if you intend to send it."
+                )
+            }
+        }
+        val paymentPhrase = paymentTapPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
+        if (paymentPhrase != null) {
+            return if (explicitPayConsent(userText)) {
+                TapDecision.Allowed
+            } else {
+                TapDecision.RequiresConfirmation(
+                    "This is a purchase or payment control ($paymentPhrase). Jarvis must ask the user first and proceed only after the user explicitly says to pay."
+                )
+            }
+        }
         val blockedPhrase = prohibitedTapPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
         if (blockedPhrase != null) {
             return TapDecision.Blocked(
-                "For safety, Jarvis will not tap purchase, payment, send, like, subscribe, or follow controls. Please review and tap that control yourself."
+                "For safety, Jarvis will not tap money-transfer, like, subscribe, or follow controls. Please review and tap that control yourself."
             )
         }
+        
         val confirmationPhrase = confirmationPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
         return if (confirmationPhrase != null) {
             TapDecision.RequiresConfirmation(
@@ -92,16 +128,28 @@ object ActionSafety {
         val scrollAsked = beginsWithRequest(text, "scroll", "swipe", "flick", "upar scroll", "neeche scroll", "स्क्रॉल करो", "स्क्रॉल", "ऊपर स्क्रॉल", "नीचे स्क्रॉल")
         val screenReadAsked = beginsWithRequest(text, "read", "show", "describe", "inspect", "tell me", "what is on", "what's on", "whats on", "दिखाओ", "बताओ", "पढ़ो", "दिखा") &&
             containsAny(text, "screen", "page", "display", "स्क्रीन", "पेज", "डिस्प्ले")
+        // A spoken task ("WhatsApp kholo aur message bhejo", "YouTube par live stream chalao",
+        // "form bharo") authorizes the screen steps it needs: read, tap, scroll, type, navigate.
+        // Dangerous controls stay guarded separately by assessTap.
+        val taskControlAsked = containsAny(
+            text,
+            "kholo", "khol do", "खोलो", "खोल", "open", "launch", "bhejo", "bhej do", "भेजो", "भेज",
+            "send", "message", "मैसेज", "search", "सर्च", "dhundo", "dhundho", "ढूंढो", "खोजो",
+            "lookup", "लुकअप", "chalao", "चलाओ", "play", "live", "stream", "video", "वीडियो",
+            "form", "फॉर्म", "bharo", "भरो", "likho", "लिखो", "prompt", "scroll", "स्क्रॉल",
+            "tap", "दबाओ", "click", "type", "टाइप", "shopping", "शॉपिंग"
+        )
 
         return when (type) {
-            JarvisIntentType.SCREEN_DUMP -> screenReadAsked || tapAsked || scrollAsked
+            JarvisIntentType.SCREEN_DUMP -> screenReadAsked || tapAsked || scrollAsked || taskControlAsked
             JarvisIntentType.SCREENSHOT -> beginsWithRequest(text, "screenshot", "take screenshot", "take a screenshot", "capture screen", "capture a screenshot", "screen capture")
-            JarvisIntentType.TAP -> tapAsked ||
+            JarvisIntentType.TAP -> tapAsked || taskControlAsked ||
                 (beginsWithRequest(text, "open", "dismiss", "close") && containsAny(text, "on screen", "visible", "button", "menu"))
-            JarvisIntentType.SWIPE, JarvisIntentType.SCROLL -> scrollAsked
-            JarvisIntentType.NAVIGATE -> beginsWithRequest(text, "go back", "back", "go home", "home screen", "ghar jao", "wapas jao", "वापस जाओ", "वापस", "पीछे जाओ", "घर जाओ", "होम")
-            JarvisIntentType.OPEN_APP -> beginsWithRequest(text, "open", "launch", "start", "kholo", "khol", "khol do", "on karo", "chalu karo", "chalao", "खोलो", "खोल", "खोल दो", "चालू करो", "शुरू करो", "ऑन करो")
-            JarvisIntentType.TYPE_TEXT -> beginsWithRequest(text, "type", "fill", "likho", "likh do", "bhar do", "लिखो", "लिख दो", "भर दो", "टाइप करो")
+            JarvisIntentType.SWIPE, JarvisIntentType.SCROLL -> scrollAsked || taskControlAsked
+            JarvisIntentType.NAVIGATE -> beginsWithRequest(text, "go back", "back", "go home", "home screen", "ghar jao", "wapas jao", "वापस जाओ", "वापस", "पीछे जाओ", "घर जाओ", "होम") || taskControlAsked
+            JarvisIntentType.OPEN_APP -> beginsWithRequest(text, "open", "launch", "start", "kholo", "khol", "khol do", "on karo", "chalu karo", "chalao", "खोलो", "खोल", "खोल दो", "चालू करो", "शुरू करो", "ऑन करो") ||
+                Regex("(?:^|\\s)(?:खोलो|खोल दो|खोल|kholo|khol|चालू करो|अ़न करो)$").containsMatchIn(text)
+            JarvisIntentType.TYPE_TEXT -> beginsWithRequest(text, "type", "fill", "likho", "likh do", "bhar do", "लिखो", "लिख दो", "भर दो", "टाइप करो") || taskControlAsked
             JarvisIntentType.NOTIFICATIONS_READ ->
                 containsAny(text, "notification", "notifications", "नोटिफिकेशन", "सूचना", "सूचनाएं") && beginsWithRequest(text, "read", "show", "list", "check", "tell me", "dikhao", "dikha", "दिखाओ", "बताओ", "पढ़ो")
             JarvisIntentType.CALENDAR_READ ->
@@ -134,9 +182,66 @@ object ActionSafety {
         return false
     }
 
-    /** Only a literal substring of the latest user request can be sent to a focused text field. */
-    fun isUserProvidedText(userText: String, candidate: String): Boolean =
-        candidate.isNotBlank() && userText.contains(candidate.trim(), ignoreCase = true)
+    /** Text the user supplied — literally, matra-insensitively, or as the same words reordered — may be typed. */
+    fun isUserProvidedText(userText: String, candidate: String): Boolean {
+        val typed = candidate.trim()
+        if (typed.isBlank()) return false
+        if (userText.contains(typed, ignoreCase = true)) return true
+        val userNorm = normalize(userText)
+        val candNorm = normalize(candidate)
+        if (candNorm.isBlank()) return false
+        if (userNorm.contains(candNorm)) return true
+        val userFlat = stripMatras(userNorm)
+        val candFlat = stripMatras(candNorm)
+        if (candFlat.isNotBlank() && userFlat.contains(candFlat)) return true
+        val userTokens = userFlat.split(" ").filter { it.isNotBlank() }.toSet()
+        val candTokens = candFlat.split(" ").filter { it.isNotBlank() }
+        return candTokens.isNotEmpty() && candTokens.all { it in userTokens }
+    }
+
+    /** The user explicitly asked Jarvis to compose/write the text himself (a prompt, a form answer, a message draft). */
+    fun userAskedToCompose(userText: String): Boolean {
+        val text = normalize(userText)
+        if (text.isBlank()) return false
+        return containsAny(
+            text,
+            "prompt likho", "prompt likh", "prompt banao", "prompt bana", "prompt likh do",
+            "likh do", "likho", "लिख दो", "लिखो", "अपने हिसाब से लिख", "खुद लिख", "खुद से लिख",
+            "compose", "write a prompt", "form bharo", "form bhar", "फॉर्म भरो", "फॉर्म भर", "भर दो"
+        )
+    }
+
+    /** The user's own words in this conversation explicitly asked to send a message. */
+    fun explicitlyAskedToSend(userText: String): Boolean {
+        val text = normalize(userText)
+        if (text.isBlank()) return false
+        return beginsWithRequest(text, "send", "bhejo", "bhej do", "bhej", "भेजो", "भेज दो", "भेज", "भेजना") ||
+            containsAny(
+                text,
+                "message bhejo", "message bhej", "bhej do", "bhejdo", "भेज दो",
+                "मैसेज भेजो", "मैसेज भेज", "संदेश भेजो", "whatsapp par bhejo", "व्हाट्सएप पर भेजो",
+                "व्हाट्सऐप पर भेजो", "को भेजो", "को मैसेज करो", "ko message karo", "message karo"
+            )
+    }
+
+    /** Short, explicit spoken consent to complete a payment, given after Jarvis asked. */
+    fun explicitPayConsent(userText: String): Boolean {
+        val text = normalize(userText)
+        if (text.isBlank()) return false
+        val words = text.split(" ").filter { it.isNotBlank() }
+        if (words.size > 10) return false
+        return containsAny(
+            text,
+                "payment kar do", "payment kardo", "pay kar do", "pay kardo",
+                "पेमेंट कर दो", "पेमेंट करो", "भुगतान कर दो", "भुगतान करो",
+                "order kar do", "अ़र्डर कर दो", "haan kar do", "हां कर दो", "हाँ कर दो",
+                "haan payment", "yes pay", "kar do payment"
+        )
+    }
+
+    /** Devanagari vowel signs (matras) removed, so small spelling differences still match. */
+    private fun stripMatras(value: String): String =
+        value.replace(Regex("[\\u093C\\u093E-\\u094D\\u0900-\\u0903\\u0962-\\u0963\\u200C\\u200D]"), "")
 
     private fun beginsWithRequest(text: String, vararg verbs: String): Boolean {
         val lead = "(?:(?:please|could you|can you|would you|will you|i want you to|please can you|can you please|would you please|jarvis)\\s+)*"
