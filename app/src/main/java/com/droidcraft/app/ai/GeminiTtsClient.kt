@@ -26,34 +26,36 @@ class GeminiTtsClient(
             require(apiKey.isNotBlank()) { "Add a Gemini API key in Settings before using Gemini TTS." }
             require(text.isNotBlank()) { "There is no reply text to speak." }
 
-            val input = JSONObject()
-                .put("type", "text")
-                .put("text", text)
-            styleInstruction
+                        val style = styleInstruction
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?.take(MAX_STYLE_LENGTH)
-                ?.let { style ->
-                    input.put(
-                        "annotations",
-                        JSONArray().put(
-                            JSONObject()
-                                .put("type", "speech_metadata")
-                                .put("style", style)
-                        )
-                    )
-                }
+            val promptText = if (style != null) "$style: $text" else text
 
             val body = JSONObject()
-                .put("model", MODEL)
-                .put("input", JSONArray().put(input))
-                .put("response_format", JSONObject().put("type", "audio"))
                 .put(
-                    "generation_config",
-                    JSONObject().put(
-                        "speech_config",
-                        JSONArray().put(JSONObject().put("voice", voiceName.ifBlank { DEFAULT_VOICE }))
+                    "contents",
+                    JSONArray().put(
+                        JSONObject().put(
+                            "parts",
+                            JSONArray().put(JSONObject().put("text", promptText))
+                        )
                     )
+                )
+                .put(
+                    "generationConfig",
+                    JSONObject()
+                        .put("responseModalities", JSONArray().put("AUDIO"))
+                        .put(
+                            "speechConfig",
+                            JSONObject().put(
+                                "voiceConfig",
+                                JSONObject().put(
+                                    "prebuiltVoiceConfig",
+                                    JSONObject().put("voiceName", voiceName.ifBlank { DEFAULT_VOICE })
+                                )
+                            )
+                        )
                 )
                 .toString()
                 .toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -61,7 +63,9 @@ class GeminiTtsClient(
             val url = HttpUrl.Builder()
                 .scheme("https")
                 .host("generativelanguage.googleapis.com")
-                .addPathSegments("v1/interactions")
+                .addPathSegment("v1beta")
+                .addPathSegment("models")
+                .addPathSegment("$MODEL:generateContent")
                 .build()
             val request = Request.Builder()
                 .url(url)
