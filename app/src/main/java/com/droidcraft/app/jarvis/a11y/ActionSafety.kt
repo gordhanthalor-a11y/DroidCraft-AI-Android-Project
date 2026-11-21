@@ -13,8 +13,8 @@ object ActionSafety {
     }
 
     private val prohibitedTapPhrases = listOf(
-        "transfer", "like", "subscribe", "follow", "unfollow", "donate",
-        "पैसे भेज", "लाइक", "सब्स्क्राइब", "फॉलो"
+        "transfer", "like", "subscribe", "follow", "unfollow", "donate", "send money",
+        "पैसे भेज", "पैसे भेजो", "लाइक", "सब्सक्राइब", "फॉलो"
     )
 
     /** Send controls in messaging apps: allowed only when the user explicitly asked to send. */
@@ -27,7 +27,7 @@ object ActionSafety {
     private val paymentTapPhrases = listOf(
         "purchase", "buy", "buy now", "checkout", "payment", "pay", "pay now",
         "google pay", "gpay", "phonepe", "paytm", "upi", "place order", "order now",
-        "खरीद", "भुगतान", "पेमेंट", "अ़र्डर"
+        "खरीद", "भुगतान", "पेमेंट", "\u0911र्डर"
     )
 
     private val messagingPackageMarkers = listOf(
@@ -78,6 +78,12 @@ object ActionSafety {
         }
         val normalized = normalize(label)
         if (normalized.isBlank()) return TapDecision.Blocked("There is no visible label to tap.")
+        val blockedPhrase = prohibitedTapPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
+        if (blockedPhrase != null) {
+            return TapDecision.Blocked(
+                "For safety, Jarvis will not tap money-transfer, like, subscribe, or follow controls. Please review and tap that control yourself."
+            )
+        }
         val sendPhrase = sendTapPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
         if (sendPhrase != null) {
             val pkg = packageName.orEmpty().lowercase(Locale.ROOT)
@@ -99,12 +105,6 @@ object ActionSafety {
                     "This is a purchase or payment control ($paymentPhrase). Jarvis must ask the user first and proceed only after the user explicitly says to pay."
                 )
             }
-        }
-        val blockedPhrase = prohibitedTapPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
-        if (blockedPhrase != null) {
-            return TapDecision.Blocked(
-                "For safety, Jarvis will not tap money-transfer, like, subscribe, or follow controls. Please review and tap that control yourself."
-            )
         }
         
         val confirmationPhrase = confirmationPhrases.firstOrNull { containsPhrase(normalized, normalize(it)) }
@@ -148,7 +148,7 @@ object ActionSafety {
             JarvisIntentType.SWIPE, JarvisIntentType.SCROLL -> scrollAsked || taskControlAsked
             JarvisIntentType.NAVIGATE -> beginsWithRequest(text, "go back", "back", "go home", "home screen", "ghar jao", "wapas jao", "वापस जाओ", "वापस", "पीछे जाओ", "घर जाओ", "होम") || taskControlAsked
             JarvisIntentType.OPEN_APP -> beginsWithRequest(text, "open", "launch", "start", "kholo", "khol", "khol do", "on karo", "chalu karo", "chalao", "खोलो", "खोल", "खोल दो", "चालू करो", "शुरू करो", "ऑन करो") ||
-                Regex("(?:^|\\s)(?:खोलो|खोल दो|खोल|kholo|khol|चालू करो|अ़न करो)$").containsMatchIn(text)
+                Regex("(?:^|\\s)(?:खोलो|खोल दो|खोल|kholo|khol do|khol|चालू करो|\u0911न करो)\\s*$").containsMatchIn(userText.trim().lowercase())
             JarvisIntentType.TYPE_TEXT -> beginsWithRequest(text, "type", "fill", "likho", "likh do", "bhar do", "लिखो", "लिख दो", "भर दो", "टाइप करो") || taskControlAsked
             JarvisIntentType.NOTIFICATIONS_READ ->
                 containsAny(text, "notification", "notifications", "नोटिफिकेशन", "सूचना", "सूचनाएं") && beginsWithRequest(text, "read", "show", "list", "check", "tell me", "dikhao", "dikha", "दिखाओ", "बताओ", "पढ़ो")
@@ -234,7 +234,7 @@ object ActionSafety {
             text,
                 "payment kar do", "payment kardo", "pay kar do", "pay kardo",
                 "पेमेंट कर दो", "पेमेंट करो", "भुगतान कर दो", "भुगतान करो",
-                "order kar do", "अ़र्डर कर दो", "haan kar do", "हां कर दो", "हाँ कर दो",
+                "order kar do", "\u0911र्डर कर दो", "haan kar do", "हां कर दो", "हाँ कर दो",
                 "haan payment", "yes pay", "kar do payment"
         )
     }
