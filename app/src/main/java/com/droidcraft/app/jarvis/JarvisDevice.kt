@@ -208,13 +208,12 @@ class JarvisDevice(private val context: Context) {
         JarvisAccessibilityService.instance?.launchAppByName(rawQuery)?.let { label ->
             return JarvisOutcome("Opening $label.")
         }
-        val needle = normalizeLabel(rawQuery)
-        val apps = launcherApps()
+        val apps = launcherApps().filter { it.first.isNotBlank() }
         fun keyOf(label: String): String = stripMatras(normalizeLabel(label)).replace(" ", "")
         val needleKey = keyOf(rawQuery)
         val exact = apps.filter { keyOf(it.first) == needleKey }
         val prefix = apps.filter { keyOf(it.first).startsWith(needleKey) }
-        val contains = apps.filter { keyOf(it.first).contains(needleKey) || needleKey.contains(keyOf(it.first)) }
+        val contains = apps.filter { val key = keyOf(it.first); key.isNotEmpty() && (key.contains(needleKey) || needleKey.contains(key)) }
         val candidates = if (exact.isNotEmpty()) exact else if (prefix.isNotEmpty()) prefix else contains
         val distinct = candidates.distinctBy { it.second.component?.packageName ?: it.first }
         return when (distinct.size) {
