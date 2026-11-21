@@ -247,8 +247,8 @@ fun SettingsScreen(
                     value = silenceDurationMs.toFloat(),
                     onValueChange = { silenceDurationMs = (it / 100f).toInt() * 100 },
                     onValueChangeFinished = { LiveVoiceSettings.setSilenceDurationMs(context, silenceDurationMs) },
-                    valueRange = 200f..2_000f,
-                    steps = 17
+                    valueRange = 600f..2_000f,
+                    steps = 13
                 )
                 TextButton(onClick = onOpenMemories, modifier = Modifier.fillMaxWidth()) { Text("Open Jarvis memory") }
             }
