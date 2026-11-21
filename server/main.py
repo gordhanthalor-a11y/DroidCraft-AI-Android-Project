@@ -30,6 +30,15 @@ log = logging.getLogger("jarvis-social")
 
 DB_PATH = Path(__file__).parent / "jarvis_social.db"
 app = FastAPI(title="Jarvis Social Relay")
+# YouTube cookies from env (datacenter-IP bot check ke liye)
+import base64 as _b64, os as _os
+_ck = _os.environ.get("YT_COOKIES_B64")
+if _ck:
+    try:
+        Path("/tmp/yt_cookies.txt").write_bytes(_b64.b64decode(_ck))
+        log.info("YouTube cookies loaded")
+    except Exception as e:
+        log.warning(f"cookies decode fail: {e}")
 
 # ------------------------------------------------------------------ DB
 
