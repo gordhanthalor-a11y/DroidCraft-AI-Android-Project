@@ -189,6 +189,14 @@ object JarvisCommandParser {
             val query = cleanAppQuery(openMatch.groupValues[1])
             if (query.isNotBlank()) return JarvisIntent(JarvisIntentType.OPEN_APP, mapOf("query" to query))
         }
+        // Hindi word order: "<app> kholo" (verb last) — jaise "WhatsApp kholo".
+        val openHindiMatch = Regex("^(.+?)\\s+(?:kholo|khol do|khol|खोलो|खोल दो|खोल|चालू करो|\u0911न करो)\\s*$").find(strippedForLaunch)
+        if (openHindiMatch != null) {
+                val query = cleanAppQuery(openHindiMatch.groupValues[1])
+                if (query.isNotBlank() && query.split(" ").size <= 3) {
+                        return JarvisIntent(JarvisIntentType.OPEN_APP, mapOf("query" to query))
+                }
+        }
 
         // ---------- Explicit web search ----------
         val searchMatch = Regex("^(?:search|google|dhundo|dhoondo|dhoond|dikhao|dikha do)\\s+(.+)$").find(strippedForLaunch)
