@@ -20,7 +20,7 @@ object LiveVoiceSettings {
         "models/gemini-3.8-live"
     )
     const val DEFAULT_LIVE_MODEL = "models/gemini-3.8-live"
-    const val DEFAULT_SILENCE_DURATION_MS = 600
+    const val DEFAULT_SILENCE_DURATION_MS = 800
 
     fun echoMode(context: Context): EchoControlMode = runCatching {
         EchoControlMode.valueOf(preferences(context).getString(KEY_ECHO_MODE, EchoControlMode.AUTO.name).orEmpty())
@@ -32,10 +32,10 @@ object LiveVoiceSettings {
 
     fun silenceDurationMs(context: Context): Int =
         preferences(context).getInt(KEY_SILENCE_MS, DEFAULT_SILENCE_DURATION_MS)
-            .coerceIn(200, 2_000)
+            .coerceIn(600, 2_000)
 
     fun setSilenceDurationMs(context: Context, durationMs: Int) {
-        preferences(context).edit().putInt(KEY_SILENCE_MS, durationMs.coerceIn(200, 2_000)).apply()
+        preferences(context).edit().putInt(KEY_SILENCE_MS, durationMs.coerceIn(600, 2_000)).apply()
     }
 
     fun liveModel(context: Context): String = preferences(context)
