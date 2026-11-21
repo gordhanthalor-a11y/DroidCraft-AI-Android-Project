@@ -9,7 +9,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,15 +41,8 @@ class MainActivity : ComponentActivity() {
     private val screenCaptureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         ScreenCaptureCoordinator.onProjectionResult(this, result)
     }
-    private val speechInputLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK && result.data != null) {
-            result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-                ?.takeIf { it.isNotBlank() }
-                ?.let(jarvisViewModel::handleUserText)
-        }
-        restartWakeWordIfEnabled()
-    }
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var speechRecognizerRetryUsed = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeReceiverRegistered = false
@@ -119,6 +114,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { speechRecognizer?.destroy() }
+        speechRecognizer = null
         ScreenCaptureCoordinator.detach()
         super.onDestroy()
     }
@@ -162,16 +159,64 @@ class MainActivity : ComponentActivity() {
         }
         val speechLanguage = getSharedPreferences("droidcraft", MODE_PRIVATE)
             .getString("jarvis_voice_language", "hi-IN") ?: "hi-IN"
-        val recognize = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        speechRecognizerRetryUsed = false
+        startInAppSpeechRecognition(speechLanguage, useOnDevice = true)
+    }
+
+    /** Programmatic speech recognition: no Google voice UI ever appears on screen. */
+    private fun startInAppSpeechRecognition(speechLanguage: String, useOnDevice: Boolean) {
+        runCatching { speechRecognizer?.destroy() }
+        speechRecognizer = null
+        val onDevice = useOnDevice &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        val recognizer = if (onDevice) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(this)
+        }
+        speechRecognizer = recognizer
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) = Unit
+            override fun onBeginningOfSpeech() = Unit
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+            override fun onEndOfSpeech() = Unit
+            override fun onPartialResults(partialResults: Bundle?) = Unit
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            override fun onResults(results: Bundle?) {
+                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                runCatching { speechRecognizer?.destroy() }
+                speechRecognizer = null
+                speechRecognizerRetryUsed = false
+                if (text != null) jarvisViewModel.handleUserText(text)
+                restartWakeWordIfEnabled()
+            }
+
+            override fun onError(error: Int) {
+                runCatching { speechRecognizer?.destroy() }
+                speechRecognizer = null
+                if (onDevice && !speechRecognizerRetryUsed) {
+                    speechRecognizerRetryUsed = true
+                    startInAppSpeechRecognition(speechLanguage, useOnDevice = false)
+                    return
+                }
+                speechRecognizerRetryUsed = false
+                Log.w(TAG, "In-app speech recognition failed with error $error")
+                restartWakeWordIfEnabled()
+            }
+        })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguage)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguage)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak a command in Hindi or English...")
         }
-        try {
-            speechInputLauncher.launch(recognize)
-        } catch (error: Exception) {
+        runCatching { recognizer.startListening(intent) }.onFailure { error ->
             Log.e(TAG, "Android speech recognizer is unavailable", error)
+            runCatching { speechRecognizer?.destroy() }
+            speechRecognizer = null
             restartWakeWordIfEnabled()
         }
     }
