@@ -2,7 +2,7 @@ package com.droidcraft.app.jarvis.notifications
 
 import android.app.Notification
 import android.app.NotificationChannel
-import android.app.NotificationListenerService
+import android.service.notification.NotificationListenerService
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
