@@ -106,7 +106,8 @@ fun DroidCraftNavHost(
                         energy = energy,
                         phase = phase,
                         hasGeminiKey = hasGeminiKey,
-                        onOpenSettings = { screen = "settings" }
+                        onOpenSettings = { screen = "settings" },
+                        onOpenMemories = { screen = "memories" }
                     )
                 }
             }
