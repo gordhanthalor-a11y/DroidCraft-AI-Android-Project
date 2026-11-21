@@ -131,8 +131,8 @@ class JarvisBrain(
             tool("system_navigation", "Use Android Back or Home. No other system action is available.", objectOf("action" to enumProperty("System navigation action.", listOf("BACK", "HOME")), required = listOf("action"))),
             tool("launch_app_by_name", "Launch one installed app only when its launcher label is a clear exact or prefix match.", objectOf("app_name" to stringProperty("Installed launcher app name."), required = listOf("app_name"))),
             tool("type_in_focused_field", "Insert user-provided text only in the already-focused editable field; do not submit it.", objectOf("text" to stringProperty("Exact text the user literally supplied."), required = listOf("text"))),
-            tool("read_notifications", "Read recent notifications only when the user explicitly requests them. Permission is checked in code.", objectOf("limit" to integerProperty("Maximum number of local notifications to return.", 1, 50))),
-            tool("read_calendar", "Read calendar events in the requested upcoming time window after asking permission on demand.", objectOf("days_ahead" to integerProperty("Upcoming days, from 1 to 30.", 1, 30))),
+            tool("read_notifications", "Read recent notifications only when the user explicitly requests them. Permission is checked in code.", objectOf("limit" to integerProperty("Maximum number of local notifications to return.", 1, 50), required = listOf("limit"))),
+            tool("read_calendar", "Read calendar events in the requested upcoming time window after asking permission on demand.", objectOf("days_ahead" to integerProperty("Upcoming days, from 1 to 30.", 1, 30), required = listOf("days_ahead"))),
             tool("lookup_contact", "Look up one contact the user explicitly named. Contacts permission is requested on demand.", objectOf("name" to stringProperty("Name the user asked Jarvis to look up."), required = listOf("name"))),
             tool("open_dialer_for_contact", "Open the system dialer for a requested contact or number; never place the call.", objectOf(
                 "name" to stringProperty("Contact name, if supplied."),

@@ -8,17 +8,17 @@ import android.os.Handler
 import android.os.Looper
 import androidx.activity.result.ActivityResult
 import com.droidcraft.app.jarvis.overlay.JarvisBodyService
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** Requests one user-approved, read-only screenshot when the accessibility service is unavailable. */
 object ScreenCaptureCoordinator {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val requestContinuation = AtomicReference<Continuation<ByteArray>?>(null)
+    private val requestContinuation = AtomicReference<CancellableContinuation<ByteArray>?>(null)
     @Volatile private var projectionPrompt: (() -> Unit)? = null
 
     fun attach(launchPrompt: () -> Unit) {
