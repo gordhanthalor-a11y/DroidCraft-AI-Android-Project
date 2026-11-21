@@ -15,6 +15,9 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.droidcraft.app.MainActivity
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** Foreground service for the fully on-device, Hindi + English Vosk wake-word listener. */
 class WakeWordService : Service() {
@@ -40,6 +43,8 @@ class WakeWordService : Service() {
         }
 
         listening = true
+        _running.value = true
+        _status.value = "Preparing offline Hindi + Indian English models"
         detachedNotification = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -63,6 +68,7 @@ class WakeWordService : Service() {
 
     private fun updateStatus(message: String) {
         if (!listening) return
+        _status.value = message
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(message))
     }
@@ -70,6 +76,8 @@ class WakeWordService : Service() {
     private fun onWakeWordDetected() {
         if (!listening) return
         listening = false
+        _running.value = false
+        _status.value = "Wake phrase detected"
         wakeListener?.stop()
         wakeListener = null
         sendBroadcast(Intent(ACTION_WAKE_DETECTED).setPackage(packageName))
@@ -80,6 +88,8 @@ class WakeWordService : Service() {
         if (!listening) return
         Log.e(TAG, "Offline Vosk wake listener stopped", failure)
         listening = false
+        _running.value = false
+        _status.value = "Offline wake listening stopped"
         wakeListener?.stop()
         wakeListener = null
         val detail = failure.message?.takeIf { it.isNotBlank() }
@@ -93,6 +103,8 @@ class WakeWordService : Service() {
 
     private fun showFinalStatus(message: String, openForVoice: Boolean = false) {
         detachedNotification = true
+        _running.value = false
+        _status.value = message
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(message, ongoing = false, openForVoice = openForVoice))
         stopForeground(STOP_FOREGROUND_DETACH)
@@ -112,6 +124,8 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         listening = false
+        _running.value = false
+        if (!detachedNotification) _status.value = "Off"
         wakeListener?.stop()
         wakeListener = null
         wakeLock?.takeIf { it.isHeld }?.release()
@@ -169,6 +183,11 @@ class WakeWordService : Service() {
     }
 
     companion object {
+        private val _running = MutableStateFlow(false)
+        val running: StateFlow<Boolean> = _running.asStateFlow()
+        private val _status = MutableStateFlow("Off")
+        val status: StateFlow<String> = _status.asStateFlow()
+
         const val ACTION_START = "com.droidcraft.app.action.START_WAKE_LISTENER"
         const val ACTION_STOP = "com.droidcraft.app.action.STOP_WAKE_LISTENER"
         const val ACTION_WAKE_DETECTED = "com.droidcraft.app.action.WAKE_DETECTED"

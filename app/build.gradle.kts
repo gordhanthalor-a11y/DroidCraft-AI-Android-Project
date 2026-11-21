@@ -67,6 +67,11 @@ dependencies {
     // Kotlin Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
-    // EncryptedSharedPreferences for the Gemini API key
+    // EncryptedSharedPreferences for provider API keys
     implementation(libs.androidx.security.crypto)
+
+    // Optional, offline Hindi + Indian English wake phrase
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
+
 }

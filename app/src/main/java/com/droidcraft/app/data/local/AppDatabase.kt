@@ -99,7 +99,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 listOf(
-                    "social_accounts", "post_queue", "post_captions", "publish_history",
+                    "videos_table", "social_accounts", "post_queue", "post_captions", "publish_history",
                     "campaigns", "job_applications", "hindi_notes"
                 ).forEach { table -> db.execSQL("DROP TABLE IF EXISTS `$table`") }
             }

@@ -63,12 +63,16 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.droidcraft.app.jarvis.JarvisViewModel
 import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
 import com.droidcraft.app.jarvis.overlay.JarvisBodyService
+import com.droidcraft.app.jarvis.wake.WakeWordService
+import com.droidcraft.app.jarvis.voice.SpeechProvider
+import com.droidcraft.app.jarvis.voice.VoiceMode
 import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.ai.EchoControlMode
 import com.droidcraft.app.data.ActionDecisionStore
 import com.droidcraft.app.data.AiProvider
 import com.droidcraft.app.data.AiProviderSettings
 import com.droidcraft.app.data.AiProviderTelemetry
+import com.droidcraft.app.ai.SpeechProviderTelemetry
 import com.droidcraft.app.data.CapabilitySettings
 import com.droidcraft.app.data.JarvisCapability
 import com.droidcraft.app.ai.LiveVoiceSettings
@@ -98,6 +102,7 @@ fun SettingsScreen(
     val activityRecords by HomeActivityTracker.records.collectAsState()
     val actionDecisions by ActionDecisionStore.records.collectAsState()
     var latencySnapshot by remember { mutableStateOf(AiProviderTelemetry.all(context)) }
+    var speechLatencySnapshot by remember { mutableStateOf(SpeechProviderTelemetry.all(context)) }
     val testingConnection by conversationViewModel.testingGeminiConnection.collectAsState()
     val modelOrder by conversationViewModel.geminiModelOrder.collectAsState()
     val modelMessage by conversationViewModel.geminiModelSettingsMessage.collectAsState()
@@ -117,14 +122,34 @@ fun SettingsScreen(
     var liveModelMenu by remember { mutableStateOf(false) }
     var modelOrderInput by remember { mutableStateOf(modelOrder.joinToString("\n")) }
     var keyNotice by remember { mutableStateOf("") }
+    var speechProvider by remember { mutableStateOf(VoiceSettings.speechProvider(context)) }
+    var elevenLabsKeyInput by remember { mutableStateOf("") }
+    var hasElevenLabsKey by remember {
+        mutableStateOf(runCatching { VoiceSettings.elevenLabsApiKey(context).isNotBlank() }.getOrDefault(false))
+    }
+    var elevenVoiceId by remember { mutableStateOf(VoiceSettings.elevenVoiceId(context)) }
+    var voiceSettingsNotice by remember { mutableStateOf("") }
     var geminiVoice by remember { mutableStateOf(VoiceSettings.geminiVoice(context)) }
     var bubbleNotice by remember { mutableStateOf("") }
     var voiceMenu by remember { mutableStateOf(false) }
+    var elevenVoiceMenu by remember { mutableStateOf(false) }
     var accessibilityEnabled by remember { mutableStateOf(JarvisAccessibilityService.isEnabled(context)) }
     var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var bubbleRunning by remember { mutableStateOf(JarvisBodyService.isBodyEnabled(context)) }
+    val wakeServiceRunning by WakeWordService.running.collectAsState()
+    val wakeServiceStatus by WakeWordService.status.collectAsState()
+    var capabilityNotice by remember { mutableStateOf("") }
     var enabledCapabilities by remember {
         mutableStateOf(JarvisCapability.values().associateWith { CapabilitySettings.isEnabled(context, it) })
+    }
+
+    val updateSpeechProvider: (SpeechProvider) -> Unit = { selected ->
+        speechProvider = selected
+        VoiceSettings.setMode(
+            context,
+            if (selected == SpeechProvider.ELEVENLABS) VoiceMode.ELEVENLABS else VoiceMode.GEMINI_FREE
+        )
+        voiceSettingsNotice = "${selected.displayName} selected. If it cannot synthesize speech, Jarvis will announce and use the configured fallback."
     }
 
     LaunchedEffect(modelOrder) { modelOrderInput = modelOrder.joinToString("\n") }
@@ -142,6 +167,7 @@ fun SettingsScreen(
                 overlayGranted = Settings.canDrawOverlays(context)
                 bubbleRunning = JarvisBodyService.isBodyEnabled(context)
                 latencySnapshot = AiProviderTelemetry.all(context)
+                speechLatencySnapshot = SpeechProviderTelemetry.all(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -152,6 +178,16 @@ fun SettingsScreen(
     }
     val overlayLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         overlayGranted = Settings.canDrawOverlays(context)
+    }
+    val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && CapabilitySettings.isEnabled(context, JarvisCapability.OFFLINE_WAKE)) {
+            runCatching { WakeWordService.start(context) }
+                .onFailure { capabilityNotice = "Offline wake listener could not start: ${it.message ?: "Android refused the service request."}" }
+        } else if (!granted) {
+            CapabilitySettings.setEnabled(context, JarvisCapability.OFFLINE_WAKE, false)
+            enabledCapabilities = enabledCapabilities + (JarvisCapability.OFFLINE_WAKE to false)
+            capabilityNotice = "Microphone permission was not granted; offline wake listening remains off."
+        }
     }
 
     Column(
@@ -300,28 +336,138 @@ fun SettingsScreen(
 
         SettingsCard(energy, phase) {
             Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                SectionHeading(Icons.Default.GraphicEq, "Voice", "Gemini TTS with Charon is the normal Jarvis voice. Android phone TTS is reserved for an emergency fallback when Gemini TTS fails.")
-                Text("Primary voice · Gemini TTS · Charon", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                Text("If Gemini TTS cannot speak, Jarvis switches to Android phone TTS and labels that fallback in the conversation.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
-                OutlinedButton(onClick = { voiceMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Gemini preset · $geminiVoice")
+                SectionHeading(
+                    Icons.Default.GraphicEq,
+                    "Voice",
+                    "Choose Gemini TTS or optional ElevenLabs. Provider keys are encrypted on this device; Android phone TTS remains the emergency fallback."
+                )
+                SpeechProvider.values().forEach { provider ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { updateSpeechProvider(provider) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = speechProvider == provider,
+                            onClick = { updateSpeechProvider(provider) }
+                        )
+                        Column {
+                            Text(provider.displayName, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text(
+                                if (provider == SpeechProvider.GEMINI) "Default · ${VoiceSettings.geminiVoice(context)}"
+                                else "Optional paid service · ${when {
+                                    !hasElevenLabsKey -> "no key saved"
+                                    VoiceSettings.isElevenLabsPlanBlocked() -> "plan/credit restriction reported"
+                                    else -> "key saved"
+                                }}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                 }
-                DropdownMenu(expanded = voiceMenu, onDismissRequest = { voiceMenu = false }) {
-                    VoiceSettings.GEMINI_VOICES.forEach { voice ->
-                        DropdownMenuItem(
-                            text = { Text(if (voice == "Charon") "$voice · default" else voice) },
+                if (speechProvider == SpeechProvider.GEMINI) {
+                    OutlinedButton(onClick = { voiceMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Gemini preset · $geminiVoice")
+                    }
+                    DropdownMenu(expanded = voiceMenu, onDismissRequest = { voiceMenu = false }) {
+                        VoiceSettings.GEMINI_VOICES.forEach { voice ->
+                            DropdownMenuItem(
+                                text = { Text(if (voice == "Charon") "$voice · default" else voice) },
+                                onClick = {
+                                    geminiVoice = voice
+                                    VoiceSettings.setGeminiVoice(context, voice)
+                                    voiceMenu = false
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        "ElevenLabs key is stored encrypted and is never sent to Gemini. Review your provider plan before selecting this paid route.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp
+                    )
+                    OutlinedTextField(
+                        value = elevenLabsKeyInput,
+                        onValueChange = { elevenLabsKeyInput = it; voiceSettingsNotice = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("ElevenLabs API key") },
+                        placeholder = { Text(if (hasElevenLabsKey) "Key saved · paste a replacement" else "Paste ElevenLabs API key") },
+                        visualTransformation = if (elevenLabsKeyInput.isBlank()) VisualTransformation.None else PasswordVisualTransformation()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(
                             onClick = {
-                                geminiVoice = voice
-                                VoiceSettings.setGeminiVoice(context, voice)
-                                voiceMenu = false
-                            }
+                                runCatching { VoiceSettings.setElevenLabsApiKey(context, elevenLabsKeyInput) }
+                                    .onSuccess {
+                                        elevenLabsKeyInput = ""
+                                        hasElevenLabsKey = true
+                                        voiceSettingsNotice = "ElevenLabs key saved in encrypted device storage."
+                                    }
+                                    .onFailure { voiceSettingsNotice = it.message ?: "Could not save the ElevenLabs key." }
+                            },
+                            enabled = elevenLabsKeyInput.isNotBlank()
+                        ) { Text("Save key") }
+                        OutlinedButton(
+                            onClick = {
+                                runCatching { VoiceSettings.clearElevenLabsApiKey(context) }
+                                    .onSuccess {
+                                        elevenLabsKeyInput = ""
+                                        hasElevenLabsKey = false
+                                        voiceSettingsNotice = "ElevenLabs key removed from this device."
+                                    }
+                                    .onFailure { voiceSettingsNotice = it.message ?: "Could not remove the ElevenLabs key." }
+                            },
+                            enabled = hasElevenLabsKey
+                        ) { Text("Remove key") }
+                    }
+                    Text(if (hasElevenLabsKey) "ElevenLabs key saved" else "No ElevenLabs key saved", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                    OutlinedButton(onClick = { elevenVoiceMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("ElevenLabs voice · ${VoiceSettings.elevenVoiceName(context)}")
+                    }
+                    DropdownMenu(expanded = elevenVoiceMenu, onDismissRequest = { elevenVoiceMenu = false }) {
+                        VoiceSettings.ELEVENLABS_VOICES.forEach { voice ->
+                            DropdownMenuItem(
+                                text = { Text("${voice.name} · ${voice.hint}") },
+                                onClick = {
+                                    elevenVoiceId = voice.id
+                                    VoiceSettings.setElevenVoiceId(context, voice.id)
+                                    elevenVoiceMenu = false
+                                }
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = elevenVoiceId,
+                        onValueChange = { elevenVoiceId = it; voiceSettingsNotice = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Custom ElevenLabs voice ID") }
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            runCatching { VoiceSettings.setElevenVoiceId(context, elevenVoiceId) }
+                                .onSuccess { voiceSettingsNotice = "ElevenLabs voice ID saved." }
+                                .onFailure { voiceSettingsNotice = it.message ?: "Invalid ElevenLabs voice ID." }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Save voice ID") }
+                    if (!hasElevenLabsKey) {
+                        Text(
+                            "ElevenLabs is selected without a key; Jarvis will announce a switch to Gemini if its key is available, otherwise use phone TTS.",
+                            color = MaterialTheme.colorScheme.tertiary,
+                            fontSize = 10.sp
                         )
                     }
+                }
+                if (voiceSettingsNotice.isNotBlank()) {
+                    Text(voiceSettingsNotice, color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Speak Jarvis replies", fontWeight = FontWeight.SemiBold)
-                        Text("Live Talk uses its active audio session; Android phone TTS remains its last-resort fallback.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                        Text("Live Talk uses the same selected speech route; Android phone TTS remains its last-resort fallback.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                     }
                     Switch(checked = autoSpeak, onCheckedChange = { jarvisViewModel.toggleAutoSpeak() })
                 }
@@ -384,10 +530,29 @@ fun SettingsScreen(
                             onCheckedChange = { enabled ->
                                 CapabilitySettings.setEnabled(context, capability, enabled)
                                 enabledCapabilities = enabledCapabilities + (capability to enabled)
+                                if (capability == JarvisCapability.OFFLINE_WAKE) {
+                                    capabilityNotice = ""
+                                    if (!enabled) {
+                                        WakeWordService.stop(context)
+                                    } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                        runCatching { WakeWordService.start(context) }
+                                            .onFailure { capabilityNotice = "Offline wake listener could not start: ${it.message ?: "Android refused the service request."}" }
+                                    } else {
+                                        microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
                             }
                         )
                     }
                 }
+                if (capabilityNotice.isNotBlank()) {
+                    Text(capabilityNotice, color = MaterialTheme.colorScheme.error, fontSize = 10.sp)
+                }
+                Text(
+                    "Offline wake service · ${if (wakeServiceRunning) "running · $wakeServiceStatus" else wakeServiceStatus}",
+                    color = if (wakeServiceRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp
+                )
                 Text(
                     "Accessibility service · ${if (accessibilityEnabled) "enabled" else "not enabled"}${if (JarvisAccessibilityService.isRunning()) " · running" else ""}",
                     color = if (accessibilityEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -437,6 +602,7 @@ fun SettingsScreen(
             Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 SectionHeading(Icons.Default.Security, "Health", "Live feature state and measurements captured on this device.")
                 Text("Microphone · ${permissionState(context, Manifest.permission.RECORD_AUDIO)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Offline wake · ${if (enabledCapabilities[JarvisCapability.OFFLINE_WAKE] == true) "enabled" else "disabled"} · ${if (wakeServiceRunning) "running" else wakeServiceStatus}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 Text("Accessibility · ${if (accessibilityEnabled) "enabled" else "disabled"} · ${if (JarvisAccessibilityService.isRunning()) "running" else "not running"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 Text("Overlay · ${if (overlayGranted) "granted" else "not granted"} · Floating body · ${if (bubbleRunning) "on" else "off"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 Text("Contacts · ${permissionState(context, Manifest.permission.READ_CONTACTS)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
@@ -457,6 +623,12 @@ fun SettingsScreen(
                 Text("Measured provider-route duration · whole reply attempt, including tool calls", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                 latencySnapshot.forEach { metric ->
                     val average = metric.averageMs?.let { "avg ${it}ms from ${metric.sampleCount} route attempt(s)" } ?: "No route timings yet"
+                    val last = metric.lastMs?.let { " · last ${it}ms · ${if (metric.lastSucceeded == true) "success" else "failed"}" }.orEmpty()
+                    Text("${metric.provider.displayName} · $average$last", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                }
+                Text("Measured speech synthesis duration · request to audio response, excludes playback", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                speechLatencySnapshot.forEach { metric ->
+                    val average = metric.averageMs?.let { "avg ${it}ms from ${metric.sampleCount} synthesis attempt(s)" } ?: "No synthesis timings yet"
                     val last = metric.lastMs?.let { " · last ${it}ms · ${if (metric.lastSucceeded == true) "success" else "failed"}" }.orEmpty()
                     Text("${metric.provider.displayName} · $average$last", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                 }
