@@ -429,7 +429,7 @@ class JarvisDevice(private val context: Context) {
                 if (!confirmedByUser) return JarvisOutcome(decision.reason, false)
             com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.Allowed -> Unit
         }
-        return when (val result = service.tapText(target, confirmedByUser, expectedPackageName), currentUserText) {
+        return when (val result = service.tapText(target, confirmedByUser, expectedPackageName, currentUserText)) {
             LabelTapResult.Tapped -> JarvisOutcome("Tapped the unique visible control labelled '$target'.")
             is LabelTapResult.Refused -> JarvisOutcome(result.reason, false)
             is LabelTapResult.NotFound -> JarvisOutcome(result.reason, false)
