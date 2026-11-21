@@ -46,6 +46,7 @@ def cut(job_id: str, url: str, clip_sec: int = 60,
             src = work_dir / "source.mp4"
             r = subprocess.run(
                 ["yt-dlp", "-f", "bv*[height<=1080]+ba/b", "--merge-output-format", "mp4",
+                  "--extractor-args", "youtube:player_client=android",
                  "-o", str(src), url], capture_output=True, text=True, timeout=1800)
             if r.returncode != 0 or not src.exists():
                 job.update(status="failed", error=f"download fail: {r.stderr[:300]}")
