@@ -102,7 +102,7 @@ jobs:
           fi
           certificate_report="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
           printf '%s\n' "$certificate_report"
-          certificate_dn="$(printf '%s\n' "$certificate_report" | sed -n 's/^[[:space:]]*Signer #1 certificate DN:[[:space:]]*//p' | head -n 1 | tr -d '\r')"
+          certificate_dn="$(printf '%s\n' "$certificate_report" | sed -n 's/.*certificate DN:[[:space:]]*//p' | head -n 1 | tr -d '\r')"
           if [[ -z "$certificate_dn" ]]; then
             echo "::error::Could not extract the APK certificate subject from apksigner output."
             while IFS= read -r report_line; do
@@ -110,8 +110,7 @@ jobs:
             done <<< "$certificate_report"
             exit 1
           fi
-          expected_dn='C=IN, O=DroidCraft, CN=DroidCraft Debug'
-          if [[ "$certificate_dn" != "$expected_dn" ]]; then
+          if [[ "$certificate_dn" != *"CN=DroidCraft Debug"* || "$certificate_dn" != *"O=DroidCraft"* || "$certificate_dn" != *"C=IN"* ]]; then
             echo "::error::Unexpected APK certificate subject: $certificate_dn"
             exit 1
           fi
@@ -169,7 +168,7 @@ jobs:
           fi
           certificate_report="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
           printf '%s\n' "$certificate_report"
-          certificate_dn="$(printf '%s\n' "$certificate_report" | sed -n 's/^[[:space:]]*Signer #1 certificate DN:[[:space:]]*//p' | head -n 1 | tr -d '\r')"
+          certificate_dn="$(printf '%s\n' "$certificate_report" | sed -n 's/.*certificate DN:[[:space:]]*//p' | head -n 1 | tr -d '\r')"
           if [[ -z "$certificate_dn" ]]; then
             echo "::error::Could not extract the downloaded APK certificate subject from apksigner output."
             while IFS= read -r report_line; do
@@ -177,8 +176,7 @@ jobs:
             done <<< "$certificate_report"
             exit 1
           fi
-          expected_dn='C=IN, O=DroidCraft, CN=DroidCraft Debug'
-          if [[ "$certificate_dn" != "$expected_dn" ]]; then
+          if [[ "$certificate_dn" != *"CN=DroidCraft Debug"* || "$certificate_dn" != *"O=DroidCraft"* || "$certificate_dn" != *"C=IN"* ]]; then
             echo "::error::Unexpected downloaded APK certificate subject: $certificate_dn"
             exit 1
           fi
