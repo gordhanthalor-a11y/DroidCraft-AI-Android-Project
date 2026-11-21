@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Fixed debug identity for personal sideloaded builds; keep this key stable across CI builds.
+val droidcraftDebugSigningPassword = "DroidCraftDebugKey2026"
+val droidcraftDebugSigningAlias = "droidcraft"
+
 android {
     namespace = "com.droidcraft.app"
     compileSdk = 35
@@ -19,8 +23,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("droidcraftDebug") {
+            storeFile = rootProject.file("keystore/droidcraft-debug.keystore")
+            storePassword = droidcraftDebugSigningPassword
+            keyAlias = droidcraftDebugSigningAlias
+            keyPassword = droidcraftDebugSigningPassword
+            storeType = "PKCS12"
+        }
+    }
+
     buildTypes {
-        release {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("droidcraftDebug")
+        }
+        getByName("release") {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -51,6 +68,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation(libs.androidx.navigation.compose)
 
     // Android Room SQLite
@@ -69,4 +87,11 @@ dependencies {
 
     // Kotlin Coroutines
     implementation(libs.kotlinx.coroutines.android)
+
+    // EncryptedSharedPreferences for local API keys and OAuth credentials
+    implementation(libs.androidx.security.crypto)
+
+    // Offline, on-device wake-word detection
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
 }

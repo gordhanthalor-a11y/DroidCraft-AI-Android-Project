@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -81,11 +80,30 @@ fun PipelineScreen(viewModel: YouTubeAutomationViewModel) {
             } else videos
 
             if (filteredVideos.isEmpty()) {
+                val emptyTitle = selectedStageFilter?.let { "No videos in ${it.displayName}" }
+                    ?: "Your pipeline is empty"
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("No videos in this stage.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(emptyTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Nothing is broken. Videos will appear here after they enter the creator workflow.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             } else {
                 LazyColumn(
@@ -146,7 +164,7 @@ fun VideoQueueCard(
                 if (video.stage == PipelineStage.READY_TO_UPLOAD) {
                     Button(
                         onClick = onApprove,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))

@@ -13,3 +13,14 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Python venv
+server/.venv/
+__pycache__/
+*.pyc
+
+# Generated local Studio service state
+/server/*.db
+/server/*.db-*
+/server/jobs/
+/server/clips/

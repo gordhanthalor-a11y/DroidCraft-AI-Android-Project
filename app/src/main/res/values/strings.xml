@@ -3,4 +3,5 @@
     <string name="creator_assistant">AI Creator Assistant</string>
     <string name="video_dubbing">Chinese-to-Hindi Dubbing</string>
     <string name="pipeline_title">Creator Pipeline</string>
+    <string name="jarvis_accessibility_desc">Jarvis screen par dikh cheezon ko padh kar bata sakta hai aur aapke ahkaam se click kar sakta hai.</string>
 </resources>
