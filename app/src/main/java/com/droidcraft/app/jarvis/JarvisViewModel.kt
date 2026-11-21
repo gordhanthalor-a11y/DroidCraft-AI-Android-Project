@@ -13,13 +13,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.droidcraft.app.ai.GeminiTtsClient
+import com.droidcraft.app.ai.SpeechSynthesisRouter
 import com.droidcraft.app.ai.PcmAudioPlayer
 import com.droidcraft.app.jarvis.character.Emotion
 import com.droidcraft.app.jarvis.character.EmotionEngine
 import com.droidcraft.app.jarvis.character.JarvisCharacter
 import com.droidcraft.app.jarvis.memory.MemoryManager
 import com.droidcraft.app.jarvis.voice.SpokenTextCleaner
+import com.droidcraft.app.jarvis.voice.SpeechProvider
 import com.droidcraft.app.jarvis.voice.VoiceMode
 import com.droidcraft.app.jarvis.voice.VoiceRouter
 import com.droidcraft.app.jarvis.voice.VoiceSettings
@@ -381,6 +382,12 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             )
             return
         }
+        val selectedTextProvider = AiProviderSettings.activeProvider(app)
+        if (providers.first().provider != selectedTextProvider) {
+            appendSystemNotice(
+                "${selectedTextProvider.displayName} has no saved API key; starting with ${providers.first().provider.displayName}."
+            )
+        }
         beginWork()
         _assistantDraft.value = ""
         viewModelScope.launch {
@@ -593,10 +600,15 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         val app = getApplication<Application>()
         val decision = VoiceRouter.decide(VoiceSettings.mode(app), emotion)
 
-        _voiceLabel.value = if (decision.provider == VoiceRouter.Provider.PHONE) {
-            "फ़ोन की आवाज़"
-        } else {
-            "Gemini ${VoiceSettings.geminiVoice(app)}"
+        val requestedProvider = when (decision.provider) {
+            VoiceRouter.Provider.PHONE -> null
+            VoiceRouter.Provider.GEMINI -> SpeechProvider.GEMINI
+            VoiceRouter.Provider.ELEVENLABS -> SpeechProvider.ELEVENLABS
+        }
+        _voiceLabel.value = when (requestedProvider) {
+            null -> "Android phone TTS"
+            SpeechProvider.GEMINI -> "Gemini ${VoiceSettings.geminiVoice(app)}"
+            SpeechProvider.ELEVENLABS -> "${VoiceSettings.elevenVoiceName(app)} (ElevenLabs)"
         }
         HomeActivityTracker.begin(
             id = activityId,
@@ -606,10 +618,10 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             progress = null
         )
 
-        if (decision.provider == VoiceRouter.Provider.PHONE) {
+        if (requestedProvider == null) {
             speakPhone(spokenText, decision.speed, generation, activityId)
         } else {
-            speakGemini(spokenText, emotion, generation, activityId)
+            speakWithProvider(spokenText, emotion, generation, activityId, requestedProvider)
         }
     }
 
@@ -657,49 +669,61 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun speakGemini(text: String, emotion: Emotion, generation: Long, activityId: String) {
+    private fun speakWithProvider(
+        text: String,
+        emotion: Emotion,
+        generation: Long,
+        activityId: String,
+        requestedProvider: SpeechProvider
+    ) {
         val app = getApplication<Application>()
-        val apiKey = GeminiApiKeyStore.read(app)
-        if (apiKey.isBlank()) {
-            _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
-            val notice = "Gemini TTS needs a Gemini API key; using the phone's free voice instead."
-            _voiceNotice.value = notice
-            HomeActivityTracker.update(activityId, "Gemini key missing; using last-resort phone TTS", note = notice)
-            speakPhone(text, EmotionEngine.style(emotion).voiceSpeed, generation, activityId)
-            return
-        }
-
-        HomeActivityTracker.update(
-            activityId,
-            "Generating speech with Gemini ${VoiceSettings.geminiVoice(app)}"
-        )
+        HomeActivityTracker.update(activityId, "Generating speech with ${requestedProvider.displayName}")
         speechJob = viewModelScope.launch {
             try {
-                val pcm = GeminiTtsClient(apiKey, VoiceSettings.geminiVoice(app))
-                    .synthesizePcm(text, EmotionEngine.geminiInstruction(emotion))
+                val result = SpeechSynthesisRouter.synthesize(
+                    context = app,
+                    text = text,
+                    emotion = emotion,
+                    requestedProvider = requestedProvider
+                )
                 if (generation != speechGeneration.get()) return@launch
+
+                val actualLabel = when (result.actualProvider) {
+                    SpeechProvider.GEMINI -> "Gemini ${VoiceSettings.geminiVoice(app)}"
+                    SpeechProvider.ELEVENLABS -> "${VoiceSettings.elevenVoiceName(app)} (ElevenLabs)"
+                }
+                _voiceLabel.value = actualLabel
+                result.fallbackNotice?.let { notice ->
+                    _voiceNotice.value = notice
+                    HomeActivityTracker.update(
+                        activityId,
+                        "Switching to ${result.actualProvider.displayName}",
+                        note = notice
+                    )
+                }
+
                 val player = PcmAudioPlayer()
                 pcmPlayer = player
                 _isSpeaking.value = true
-                HomeActivityTracker.update(activityId, "Playing Gemini-generated audio")
+                HomeActivityTracker.update(activityId, "Playing $actualLabel audio", note = result.fallbackNotice)
                 player.enqueue(
-                    pcm,
+                    result.pcm,
                     shouldPlay = { generation == speechGeneration.get() }
                 ) {
                     if (generation == speechGeneration.get()) {
                         _isSpeaking.value = false
-                        completeSpeech(activityId, "Gemini TTS playback finished")
+                        completeSpeech(activityId, "$actualLabel playback finished")
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (generation != speechGeneration.get()) return@launch
-                _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
+                _voiceLabel.value = "Android phone TTS fallback"
                 val detail = error.message ?: "service error"
-                val notice = "Gemini TTS failed ($detail); using the phone's free voice as a last-resort fallback."
+                val notice = "${requestedProvider.displayName} speech failed ($detail); using Android phone TTS as an emergency fallback."
                 _voiceNotice.value = notice
-                HomeActivityTracker.update(activityId, "Gemini failed; switching to phone TTS", note = notice)
+                HomeActivityTracker.update(activityId, "Switching to Android phone TTS", note = notice)
                 speakPhone(text, EmotionEngine.style(emotion).voiceSpeed, generation, activityId)
             }
         }
@@ -729,12 +753,17 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     fun voiceMode(): VoiceMode = VoiceSettings.mode(getApplication())
 
     fun setVoiceMode(mode: VoiceMode) {
-        if (mode != VoiceMode.GEMINI_FREE) {
-            appendBot("Android phone TTS is emergency fallback only. Gemini TTS remains Jarvis's normal voice.")
+        if (mode == VoiceMode.PHONE_FREE) {
+            appendBot("Android phone TTS is an emergency fallback and cannot be selected as Jarvis's normal voice.")
             return
         }
-        VoiceSettings.setMode(getApplication(), VoiceMode.GEMINI_FREE)
-        appendBot("Gemini TTS is Jarvis's normal voice; Android phone TTS is reserved for emergency fallback.")
+        VoiceSettings.setMode(getApplication(), mode)
+        val providerName = when (mode) {
+            VoiceMode.GEMINI_FREE -> "Gemini TTS"
+            VoiceMode.ELEVENLABS -> "ElevenLabs"
+            VoiceMode.PHONE_FREE -> "Android phone TTS"
+        }
+        appendBot("$providerName is now the selected speech provider. Android phone TTS remains an emergency fallback.")
     }
 
     fun toggleAutoSpeak() {

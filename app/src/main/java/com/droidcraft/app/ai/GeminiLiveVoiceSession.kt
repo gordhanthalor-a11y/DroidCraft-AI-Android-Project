@@ -58,7 +58,7 @@ internal interface LiveVoiceSessionListener {
 
 /**
  * Gemini Live is the conversation brain. Microphone frames are held locally until setupComplete;
- * text replies use Gemini TTS Charon, with native Live audio and phone TTS as last-resort fallbacks.
+ * text replies use the selected provider-neutral speech route, with native Live audio and phone TTS fallbacks.
  */
 internal class GeminiLiveVoiceSession(
     context: Context,
@@ -85,10 +85,6 @@ internal class GeminiLiveVoiceSession(
     } else {
         LiveToolCallingMode.PER_TOOL_ASYNC
     }
-    private val geminiTtsClient = GeminiTtsClient(
-        geminiApiKey,
-        VoiceSettings.geminiVoice(appContext)
-    )
     private val responseScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val synthesisMutex = Mutex()
 
@@ -207,7 +203,7 @@ internal class GeminiLiveVoiceSession(
                 }
             }
 
-                        override fun onMessage(webSocket: WebSocket, text: String) {
+            override fun onMessage(webSocket: WebSocket, text: String) {
                 if (!isCurrentAttempt(connectionId)) return
                 lastConnectionEvent = "Received a server message from Gemini Live."
                 handleServerMessage(text, attempt, connectionId)
@@ -833,10 +829,38 @@ internal class GeminiLiveVoiceSession(
             return
         }
         try {
-            val pcm = geminiTtsClient.synthesizePcm(text, EmotionEngine.geminiInstruction(emotion))
-            if (isSpeechGenerationActive(generation)) {
+            val result = SpeechSynthesisRouter.synthesize(
+                context = appContext,
+                text = text,
+                emotion = emotion,
+                requestedProvider = VoiceSettings.speechProvider(appContext),
+                geminiApiKeyOverride = geminiApiKey
+            )
+            if (!isSpeechGenerationActive(generation)) return
+            result.fallbackNotice?.let { notice ->
+                Log.w(LIVE_LOG_TAG, redactSecrets(notice))
+                listener.onNotice(notice)
+            }
+            audioPlayer.enqueue(
+                result.pcm,
+                shouldPlay = { isSpeechGenerationActive(generation) },
+                onPlaybackStart = { echoGate.onPlaybackStarted() },
+                afterPlayback = {
+                    echoGate.onPlaybackStopped()
+                    reportListeningIfActive(generation)
+                }
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (!isSpeechGenerationActive(generation)) return
+            val reason = "${VoiceSettings.speechProvider(appContext).displayName} speech failed: ${error.message ?: error.javaClass.simpleName}"
+            if (nativeAudio.isNotEmpty()) {
+                val notice = "$reason Using Gemini Live's native audio as a fallback."
+                Log.e(LIVE_LOG_TAG, redactSecrets(notice), error)
+                listener.onNotice(notice)
                 audioPlayer.enqueue(
-                    pcm,
+                    nativeAudio,
                     shouldPlay = { isSpeechGenerationActive(generation) },
                     onPlaybackStart = { echoGate.onPlaybackStarted() },
                     afterPlayback = {
@@ -844,16 +868,12 @@ internal class GeminiLiveVoiceSession(
                         reportListeningIfActive(generation)
                     }
                 )
+            } else {
+                val notice = "$reason Android phone TTS will speak this reply as a last-resort fallback."
+                Log.e(LIVE_LOG_TAG, redactSecrets(notice), error)
+                listener.onNotice(notice)
+                listener.onPhoneTtsFallback(text, notice)
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            if (!isSpeechGenerationActive(generation)) return
-            val reason = "Gemini TTS failed: ${error.message ?: error.javaClass.simpleName}"
-            val notice = "$reason Android phone TTS will speak this reply as a last-resort fallback."
-            Log.e(LIVE_LOG_TAG, redactSecrets(notice), error)
-            listener.onNotice(notice)
-            listener.onPhoneTtsFallback(text, notice)
         }
     }
 

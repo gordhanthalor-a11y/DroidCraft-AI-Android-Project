@@ -12,6 +12,7 @@ import com.droidcraft.app.data.GeminiApiKeyStore
 import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.jarvis.character.JarvisCharacter
 import com.droidcraft.app.jarvis.voice.SpokenTextCleaner
+import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.model.LiveConversationMessage
 import com.droidcraft.app.model.LiveConversationStatus
 import com.droidcraft.app.activity.HomeActivityTracker
@@ -238,7 +239,7 @@ class JarvisConversationViewModel(application: Application) : AndroidViewModel(a
         HomeActivityTracker.update(
             activityId,
             "Connecting to Gemini Live",
-            note = "Gemini Live with Gemini TTS"
+            note = "Gemini Live with ${VoiceSettings.speechProvider(getApplication<Application>()).displayName} speech"
         )
 
         liveSession = GeminiLiveVoiceSession(
