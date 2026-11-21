@@ -71,7 +71,7 @@ object ActionSafety {
 
     /** The active package and app label are independent of the requested target and cannot be overridden. */
     fun assessTap(label: String, packageName: String?, applicationLabel: String? = null, userText: String = ""): TapDecision {
-        if (isFinancialOrPaymentApp(packageName, applicationLabel) {
+        if (isFinancialOrPaymentApp(packageName, applicationLabel)) {
             return TapDecision.Blocked(
                 "For safety, Jarvis will not inject taps in banking or payment apps. Please use the app directly."
             )
