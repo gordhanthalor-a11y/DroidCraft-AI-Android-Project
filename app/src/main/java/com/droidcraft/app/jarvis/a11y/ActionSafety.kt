@@ -1,5 +1,6 @@
 package com.droidcraft.app.jarvis.a11y
 
+import com.droidcraft.app.jarvis.JarvisIntent
 import com.droidcraft.app.jarvis.JarvisIntentType
 import java.util.Locale
 
@@ -87,10 +88,10 @@ object ActionSafety {
     fun wasExplicitlyRequested(userText: String, type: JarvisIntentType): Boolean {
         val text = normalize(userText)
         if (text.isBlank()) return false
-        val tapAsked = beginsWithRequest(text, "tap", "click", "press", "select", "choose", "dismiss", "close", "daba", "dabao")
-        val scrollAsked = beginsWithRequest(text, "scroll", "swipe", "flick", "upar scroll", "neeche scroll")
-        val screenReadAsked = beginsWithRequest(text, "read", "show", "describe", "inspect", "tell me", "what is on", "what's on", "whats on") &&
-            containsAny(text, "screen", "page", "display")
+        val tapAsked = beginsWithRequest(text, "tap", "click", "press", "select", "choose", "dismiss", "close", "daba", "dabao", "दबाओ", "दबा दो", "क्लिक करो", "क्लिक")
+        val scrollAsked = beginsWithRequest(text, "scroll", "swipe", "flick", "upar scroll", "neeche scroll", "स्क्रॉल करो", "स्क्रॉल", "ऊपर स्क्रॉल", "नीचे स्क्रॉल")
+        val screenReadAsked = beginsWithRequest(text, "read", "show", "describe", "inspect", "tell me", "what is on", "what's on", "whats on", "दिखाओ", "बताओ", "पढ़ो", "दिखा") &&
+            containsAny(text, "screen", "page", "display", "स्क्रीन", "पेज", "डिस्प्ले")
 
         return when (type) {
             JarvisIntentType.SCREEN_DUMP -> screenReadAsked || tapAsked || scrollAsked
@@ -98,23 +99,39 @@ object ActionSafety {
             JarvisIntentType.TAP -> tapAsked ||
                 (beginsWithRequest(text, "open", "dismiss", "close") && containsAny(text, "on screen", "visible", "button", "menu"))
             JarvisIntentType.SWIPE, JarvisIntentType.SCROLL -> scrollAsked
-            JarvisIntentType.NAVIGATE -> beginsWithRequest(text, "go back", "back", "go home", "home screen", "ghar jao", "wapas jao")
-            JarvisIntentType.OPEN_APP -> beginsWithRequest(text, "open", "launch", "start", "kholo", "khol")
-            JarvisIntentType.TYPE_TEXT -> beginsWithRequest(text, "type", "fill", "likho", "likh do", "bhar do")
+            JarvisIntentType.NAVIGATE -> beginsWithRequest(text, "go back", "back", "go home", "home screen", "ghar jao", "wapas jao", "वापस जाओ", "वापस", "पीछे जाओ", "घर जाओ", "होम")
+            JarvisIntentType.OPEN_APP -> beginsWithRequest(text, "open", "launch", "start", "kholo", "khol", "khol do", "on karo", "chalu karo", "chalao", "खोलो", "खोल", "खोल दो", "चालू करो", "शुरू करो", "ऑन करो")
+            JarvisIntentType.TYPE_TEXT -> beginsWithRequest(text, "type", "fill", "likho", "likh do", "bhar do", "लिखो", "लिख दो", "भर दो", "टाइप करो")
             JarvisIntentType.NOTIFICATIONS_READ ->
-                containsAny(text, "notification", "notifications") && beginsWithRequest(text, "read", "show", "list", "check", "tell me", "dikhao", "dikha")
+                containsAny(text, "notification", "notifications", "नोटिफिकेशन", "सूचना", "सूचनाएं") && beginsWithRequest(text, "read", "show", "list", "check", "tell me", "dikhao", "dikha", "दिखाओ", "बताओ", "पढ़ो")
             JarvisIntentType.CALENDAR_READ ->
-                containsAny(text, "calendar", "event", "schedule") && beginsWithRequest(text, "read", "show", "list", "check", "tell me", "what is on", "what s on", "whats on", "dikhao", "dikha")
+                containsAny(text, "calendar", "event", "schedule", "कैलेंडर") && beginsWithRequest(text, "read", "show", "list", "check", "tell me", "what is on", "what s on", "whats on", "dikhao", "dikha", "दिखाओ", "बताओ")
             JarvisIntentType.CONTACT_LOOKUP ->
-                containsAny(text, "contact", "contacts", "address book", "number", "phone number") &&
-                    beginsWithRequest(text, "find", "look up", "lookup", "show", "get", "search", "tell me", "who is", "what is", "dhundo", "dikhao")
-            JarvisIntentType.CALL -> beginsWithRequest(text, "call", "dial", "phone karo", "dial karo", "open dialer for")
-            JarvisIntentType.REMINDER_ADD -> beginsWithRequest(text, "remind me", "set a reminder", "set reminder", "create reminder", "add reminder", "reminder", "yaad dilana", "yaad dilaana")
+                beginsWithRequest(text, "find", "look up", "lookup", "show", "get", "search", "tell me", "who is", "what is", "dhundo", "dhundho", "khojo", "nikalo", "batao", "ढूंढो", "ढूंढ", "खोजो", "निकालो", "बताओ", "दिखाओ", "लुकअप") ||
+                    (containsAny(text, "contact", "contacts", "address book", "number", "phone number", "नंबर", "कॉन्टैक्ट") &&
+                        beginsWithRequest(text, "read", "check", "list", "पढ़ो", "बताओ", "दिखाओ"))
+            JarvisIntentType.CALL -> beginsWithRequest(text, "call", "dial", "phone karo", "dial karo", "open dialer for", "call karo", "कॉल करो", "फोन करो", "डायल करो", "मिलाओ")
+            JarvisIntentType.REMINDER_ADD -> beginsWithRequest(text, "remind me", "set a reminder", "set reminder", "create reminder", "add reminder", "reminder", "yaad dilana", "yaad dilaana", "yaad dilao", "reminder lagao", "रिमाइंडर", "रिमाइंडर लगाओ", "रिमाइंडर सेट करो", "याद दिलाओ", "याद दिलाना")
             JarvisIntentType.BATTERY_EXEMPTION ->
                 containsAny(text, "battery optimization", "battery optimisation") &&
                     containsAny(text, "prompt", "exemption", "ignore", "disable", "allow", "open", "request")
             else -> false
         }
+    }
+
+    /**
+     * Intent-aware variant: a contact lookup is also authorized when the exact contact name
+     * the tool will look up appears literally in the user's latest message — this covers the
+     * natural conversation flow where Jarvis asks "which contact?" and the user replies with
+     * just the name. Lookup is read-only, so this stays a tight, literal check.
+     */
+    fun wasExplicitlyRequested(userText: String, intent: JarvisIntent): Boolean {
+        if (wasExplicitlyRequested(userText, intent.type)) return true
+        if (intent.type == JarvisIntentType.CONTACT_LOOKUP) {
+            val name = intent.args["name"].orEmpty().trim()
+            if (name.length >= 3 && normalize(userText).contains(normalize(name))) return true
+        }
+        return false
     }
 
     /** Only a literal substring of the latest user request can be sent to a focused text field. */
