@@ -240,10 +240,19 @@ internal class GeminiLiveVoiceSession(
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 lastConnectionEvent = "Gemini Live is closing the WebSocket (code $code): ${reason.ifBlank { "no reason supplied" }}"
                 Log.w(LIVE_LOG_TAG, redactSecrets(lastConnectionEvent))
+                webSocket.close(1000, null)
+                if (!setupComplete) {
+                    handleAttemptFailure(
+                        attempt,
+                        "Gemini Live closed the WebSocket (code $code): ${reason.ifBlank { "no reason supplied" }}",
+                        connectionId
+        )
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (!isCurrentAttempt(connectionId) || stopped.get()) return
+                webSocket.close(1000, null)
                 val detail = reason.takeIf { it.isNotBlank() } ?: "The provider closed the session without a reason."
                 handleAttemptFailure(attempt, "Gemini Live ended the WebSocket (code $code): $detail", connectionId)
             }
@@ -469,7 +478,6 @@ internal class GeminiLiveVoiceSession(
                     }
                 }))
             )
-            setup.put("toolConfig", JSONObject().put("functionCallingConfig", JSONObject().put("mode", "AUTO")))
         }
         return JSONObject().put("setup", setup).toString()
     }
