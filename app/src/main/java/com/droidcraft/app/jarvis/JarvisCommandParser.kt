@@ -155,8 +155,9 @@ object JarvisCommandParser {
         }
 
         // ---------- Contacts / dialer. SMS is recognized only to report that it is deferred. ----------
-        if (containsAny(text, "contact", "contacts", "phone number", "number") &&
-            beginsWithCommand(text, "find", "lookup", "look up", "show", "get", "search", "who is", "what is", "tell me")
+        if (beginsWithCommand(text, "find", "lookup", "look up", "show", "get", "search", "who is", "what is", "tell me", "dhundo", "dhundho", "khojo", "nikalo", "batao", "ढूंढो", "खोजो", "निकालो", "बताओ", "दिखाओ", "लुकअप") ||
+            (containsAny(text, "contact", "contacts", "phone number", "number") &&
+                beginsWithCommand(text, "find", "lookup", "look up", "show", "get", "search", "tell me"))
         ) {
             val query = extractContactQuery(raw)
             if (query.isNotBlank()) return JarvisIntent(JarvisIntentType.CONTACT_LOOKUP, mapOf("name" to query))
@@ -183,7 +184,7 @@ object JarvisCommandParser {
         }
 
         // ---------- Open app ----------
-        val openMatch = Regex("^(?:open|launch|start|kholo|khol|kholu|khulai|khol do|kholi|chalu kar|chala do|chala|karke kholo)\\s+(.+)$").find(strippedForLaunch)
+        val openMatch = Regex("^(?:open|launch|start|kholo|khol|kholu|khulai|khol do|kholi|chalu kar|chala do|chala|karke kholo|खोलो|खोल|खोल दो|चालू करो|शुरू करो|ऑन करो)\\s+(.+)$").find(strippedForLaunch)
         if (openMatch != null) {
             val query = cleanAppQuery(openMatch.groupValues[1])
             if (query.isNotBlank()) return JarvisIntent(JarvisIntentType.OPEN_APP, mapOf("query" to query))
@@ -312,7 +313,7 @@ object JarvisCommandParser {
     private fun extractContactQuery(raw: String): String {
         var query = stripRequestLead(raw).trim()
         query = query.replace(
-            Regex("^(?:find|lookup|look up|show|get|search|tell me|who is|what is)\\s+", RegexOption.IGNORE_CASE),
+            Regex("^(?:find|lookup|look up|show|get|search|tell me|who is|what is|dhundo|dhundho|khojo|nikalo|batao|ढूंढो|खोजो|निकालो|बताओ|दिखाओ|लुकअप)\\s+", RegexOption.IGNORE_CASE),
             ""
         )
         query = query.replace(
