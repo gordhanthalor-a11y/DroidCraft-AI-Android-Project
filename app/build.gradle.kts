@@ -5,6 +5,13 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val signingStorePath = System.getenv("DROIDCRAFT_SIGNING_KEYSTORE_PATH").orEmpty()
+val signingPassword = System.getenv("DROIDCRAFT_SIGNING_PASSWORD").orEmpty()
+if (signingStorePath.isBlank() != signingPassword.isBlank()) {
+    throw GradleException("DroidCraft debug signing requires both keystore path and password environment variables.")
+}
+val droidcraftDebugSigning = if (signingStorePath.isBlank()) null else signingStorePath to signingPassword
+
 android {
     namespace = "com.droidcraft.app"
     compileSdk = 35
@@ -19,9 +26,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Keep Android's standard debug signing for local/CI debug builds. Never ship a private
-    // signing key or its password in this repository; production signing belongs in secure CI secrets.
+    // CI supplies the long-lived DroidCraft debug certificate through ephemeral environment variables.
+    // Local builds without them use AGP's generic debug key and must not be installed as updates or shipped.
+    if (droidcraftDebugSigning != null) {
+        signingConfigs {
+            create("droidcraftDebug") {
+                storeFile = file(droidcraftDebugSigning.first)
+                storePassword = droidcraftDebugSigning.second
+                keyAlias = "droidcraft"
+                keyPassword = droidcraftDebugSigning.second
+                storeType = "PKCS12"
+            }
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            if (droidcraftDebugSigning != null) {
+                signingConfig = signingConfigs.getByName("droidcraftDebug")
+            }
+        }
         getByName("release") {
             isMinifyEnabled = true
             proguardFiles(
