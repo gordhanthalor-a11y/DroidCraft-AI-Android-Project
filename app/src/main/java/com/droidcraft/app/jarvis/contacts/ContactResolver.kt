@@ -56,7 +56,41 @@ class ContactResolver(private val context: Context) {
         return null
     }
 
-    private fun loadContacts(): List<ContactHit> {
+    /**
+     * Naam ke sabse qareebi matches, best pehle. Matra ke chhote farak (अधूराम/अधुराम)
+     * par bhi match milta hai, taaki Jarvis saamne rakh kar poochh sake ki kaunsa wala.
+     */
+    fun resolveCandidates(query: String, limit: Int = 5): List<ContactHit> {
+        if (!hasPermission()) return emptyList()
+        val q = query.trim().lowercase(Locale.ROOT)
+        if (q.isBlank()) return emptyList()
+        val all = loadContacts()
+        if (all.isEmpty()) return emptyList()
+        val qFlat = stripMatras(q)
+        val scored = all.mapNotNull { contact ->
+            val name = contact.name.lowercase(Locale.ROOT)
+            val nameFlat = stripMatras(name)
+            val tokens = name.split(" ", ".", "_", "-")
+            val tokenFlat = nameFlat.split(" ", ".", "_", "-")
+            val score = when {
+                name == q -> 100
+                nameFlat == qFlat -> 95
+                tokens.any { it.startsWith(q) } || tokenFlat.any { it.startsWith(qFlat) } -> 85
+                name.contains(q) || nameFlat.contains(qFlat) -> 75
+                else -> (similarity(qFlat, nameFlat) * 100).toInt().takeIf { it >= 60 } ?: 0
+            }
+            if (score > 0) contact to score else null
+        }
+        return scored.sortedByDescending { it.second }
+            .map { it.first }
+            .distinctBy { it.number }
+            .take(limit)
+    }
+
+        private fun stripMatras(value: String): String =
+        value.replace(Regex("[\\u093C\\u093E-\\u094D\\u0900-\\u0903\\u0962-\\u0963\\u200C\\u200D]"), "")
+
+        private fun loadContacts(): List<ContactHit> {
         val result = mutableListOf<ContactHit>()
         if (!hasPermission()) return result
         val projection = arrayOf(
