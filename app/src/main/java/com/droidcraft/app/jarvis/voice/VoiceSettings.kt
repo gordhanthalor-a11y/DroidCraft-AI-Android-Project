@@ -74,10 +74,18 @@ object VoiceSettings {
     fun speechProvider(context: Context): SpeechProvider =
         if (mode(context) == VoiceMode.ELEVENLABS) SpeechProvider.ELEVENLABS else SpeechProvider.GEMINI
 
-    fun geminiVoice(context: Context): String =
-        preferences(context).getString("gemini_voice", DEFAULT_GEMINI_VOICE)
-            ?.takeIf { it in GEMINI_VOICES }
+    fun geminiVoice(context: Context): String {
+        val prefs = preferences(context)
+        if (!prefs.getBoolean("gemini_voice_charon_migration", false)) {
+            if (prefs.getString("gemini_voice", null) == "Puck") {
+            prefs.edit().putString("gemini_voice", DEFAULT_GEMINI_VOICE).apply()
+                        }
+        prefs.edit().putBoolean("gemini_voice_charon_migration", true).apply()
+            }
+        return prefs.getString("gemini_voice", DEFAULT_GEMINI_VOICE)
+        ?.takeIf { it in GEMINI_VOICES }
             ?: DEFAULT_GEMINI_VOICE
+    }
 
     fun setGeminiVoice(context: Context, voice: String) {
         require(voice in GEMINI_VOICES) { "Choose a supported Gemini preset voice." }
