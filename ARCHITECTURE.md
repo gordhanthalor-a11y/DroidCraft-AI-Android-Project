@@ -12,11 +12,13 @@ The Jarvis HUD is composed in `ui/JarvisScreen.kt`; the orb is `ui/JarvisOrb.kt`
 
 `jarvis/JarvisCommandParser.kt` handles supported local commands. Unhandled conversation goes through `jarvis/JarvisBrain.kt`, which uses `AiProviderSettings` to build configured provider routes and retries a configured next provider after failure. Phone tool calls are converted by `jarvis/JarvisToolIntents.kt`, checked by `jarvis/a11y/ActionSafety.kt`, then passed to `JarvisDevice` and the relevant Android capability.
 
-Provider keys use the existing local secure-storage implementation. `AiProviderTelemetry` stores measured end-to-end provider-route attempt durations, totals, and counts (including any tool round-trips); displayed averages are derived from those measurements and are absent until a route attempt has actually completed.
+Provider keys use the local encrypted secure-storage implementation. `AiProviderTelemetry` stores measured end-to-end text-provider route attempt durations, including tool round-trips. `SpeechSynthesisProvider` abstracts Gemini and ElevenLabs audio behind one 24 kHz PCM contract; `SpeechSynthesisRouter` announces provider fallback, uses Android phone TTS only after synthesis failure, and `SpeechProviderTelemetry` records measured synthesis-request durations. Displayed averages are derived from device measurements and remain absent until a route attempt completes.
 
 ## Audio and Live session
 
-`ai/GeminiLiveVoiceSession.kt` builds the Live WebSocket setup and handles streamed transcripts, audio, tool calls, cancellation, and session resumption. Its microphone path requests mono PCM16 capture, uses Android AcousticEchoCanceler where available, applies the local playback-leak gate, and converts device capture to the 16 kHz wire rate. The gate tracks both PCM playback and Android TTS fallback playback. `ai/PcmAudioPlayer.kt` writes 24 kHz mono PCM16 playback in bounded chunks. `ai/Pcm16Resampler.kt` is the edge-rate conversion helper. Gemini TTS Charon is the intended default voice; Android system speech is retained as an explicitly identified emergency fallback.
+`ai/GeminiLiveVoiceSession.kt` builds the Live WebSocket setup and handles streamed transcripts, text or binary JSON frames, audio, tool calls, cancellation, and session resumption. Its microphone path requests mono PCM16 capture, uses Android AcousticEchoCanceler where available, applies the local playback-leak gate, and converts device capture to the 16 kHz wire rate. The gate tracks PCM playback and Android TTS fallback playback. `ai/PcmAudioPlayer.kt` writes 24 kHz mono PCM16 playback in bounded chunks; `ai/Pcm16Resampler.kt` is the edge-rate conversion helper. Gemini TTS Charon is the default selection; optional ElevenLabs synthesis shares the provider-neutral PCM interface and can switch back to Gemini with a visible notice. Android system speech is retained as an explicitly identified emergency fallback.
+
+`jarvis/wake/WakeWordService.kt` is an optional foreground service controlled by a capability switch that defaults off. It uses on-device Vosk wake detection; after the wake phrase, `MainActivity` asks Android's system speech recognizer for the spoken command.
 
 These code paths still require compile, API, and device verification. Their presence in source does not establish provider availability, voice output, stable Live duration, or successful tool execution.
 
@@ -24,7 +26,7 @@ These code paths still require compile, API, and device verification. Their pres
 
 `data/local/AppDatabase.kt` stores user memories. Database migration 6→7 keeps memory while dropping retired app tables. `jarvis/memory/MemoryManager.kt` and `ui/MemoriesScreen.kt` provide the current memory path.
 
-Phone interaction is isolated behind Android permission/service checks. Accessibility, microphone, contacts, calendar, notifications, overlay, and reminder paths must be enabled and tested individually. Sensitive screen actions are subject to the local action-safety gate; a model response is never authorization.
+Phone interaction is isolated behind Android permission/service checks. Accessibility, microphone, contacts, calendar, notifications, overlay, reminder, and optional offline wake paths must be enabled and tested individually. The wake phrase itself is processed on-device; Android speech recognition handles the command after wake. Sensitive screen actions are subject to the local action-safety gate; a model response is never authorization.
 
 ## Build and proof
 

@@ -2,7 +2,7 @@ name: Build DroidCraft Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'arena/709543a2-droidcraft-ai-android-project' ]
   workflow_dispatch:
 
 permissions:
