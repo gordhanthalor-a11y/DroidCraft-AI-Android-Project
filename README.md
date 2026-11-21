@@ -13,7 +13,7 @@ The old publishing/creator backend has been removed. An evidence-based screen in
 
 ## Verification status
 
-Source edits in this checkout have **not** been independently verified as an installable app. A successful Android build, APK, Gemini or ElevenLabs speech test, sustained Live session, and completed phone-control test are not available as evidence. Do not interpret source configuration as proof that a provider or device action works on a phone. Text-provider timing summaries measure complete reply attempts (including tool work); speech-provider timings measure synthesis requests and exclude audio playback. Neither is a model-only speed benchmark. The optional Vosk wake-phrase feature is disabled by default and also requires device verification.
+GitHub Actions run [44903316005](https://github.com/gordhanthalor-a11y/DroidCraft-AI-Android-Project/actions/runs/44903316005) built and signed a debug APK and verified the uploaded/downloaded artifact bytes for commit `c83d13d`. This is build evidence only: the APK has not been installed/device-tested, and Gemini or ElevenLabs speech, sustained Live, wake detection, and phone-control behavior remain unverified. Do not interpret source configuration as proof that a provider or device action works on a phone. Text-provider timing summaries measure complete reply attempts (including tool work); speech-provider timings measure synthesis requests and exclude audio playback. Neither is a model-only speed benchmark. The optional Vosk wake-phrase feature is disabled by default and also requires device verification.
 
 Build with the Gradle wrapper in an Android/Java development environment:
 
