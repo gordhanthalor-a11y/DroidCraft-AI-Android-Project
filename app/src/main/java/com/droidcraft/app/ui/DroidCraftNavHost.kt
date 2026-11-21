@@ -64,7 +64,7 @@ fun DroidCraftNavHost(
     }.coerceIn(0f, 1f)
     val energy by animateFloatAsState(targetValue = targetEnergy, animationSpec = tween(180), label = "shared-energy")
     val motion = rememberInfiniteTransition(label = "jarvis-motion")
-    val phase by motion.animateFloat(
+    val phase = motion.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(12_000, easing = LinearEasing), repeatMode = RepeatMode.Restart),
