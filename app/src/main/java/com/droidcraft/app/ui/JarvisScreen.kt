@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -81,7 +82,7 @@ fun JarvisScreen(
     conversationViewModel: JarvisConversationViewModel,
     jarvisViewModel: JarvisViewModel,
     energy: Float,
-    phase: Float,
+    phase: State<Float>,
     hasGeminiKey: Boolean,
     onOpenSettings: () -> Unit
 ) {
@@ -313,7 +314,7 @@ fun JarvisScreen(
                 onClick = {
                     val text = input.trim()
                     if (text.isNotBlank()) {
-                        if (activeLive) {
+                        if (liveStatus == LiveConversationStatus.LISTENING || liveStatus == LiveConversationStatus.SPEAKING) {
                             if (conversationViewModel.sendLiveText(text)) input = ""
                         } else {
                             jarvisViewModel.handleUserText(text)
@@ -408,8 +409,9 @@ private fun DraftLine(label: String, text: String, accent: Color) {
 }
 
 @Composable
-private fun WorkingTaskPlinth(phase: Float, color: Color) {
+private fun WorkingTaskPlinth(phase: State<Float>, color: Color) {
     Canvas(Modifier.size(300.dp)) {
+        val phase = phase.value
         val unit = size.minDimension
         listOf(0.36f, 0.43f, 0.49f).forEachIndexed { index, fraction ->
             val dash = PathEffect.dashPathEffect(
