@@ -18,13 +18,14 @@ There is no bottom navigation, `MoreScreen`, home grid, or extra tools tab in `D
 
 | Feature / entry surface | Status | Source evidence |
 |---|---:|---|
-| Clipper | Removed | The `server/` tree containing the old Python implementation and route was deleted; no clip route remains in the Android navigation or source tree. |
-| Dubbing | Removed | The old Python implementation and route were deleted with `server/`; no Android destination or menu entry exists. |
-| Voice Studio / server TTS | Removed | The old server TTS and QC implementation and endpoints were deleted with `server/`; normal Jarvis speech is separate in `ai/GeminiTtsClient.kt`. |
-| Upload Helper / upload-QC screens | Removed from current app source | No screen, menu item, or endpoint is present in the current UI/navigation; old server endpoints and deployment folder are absent. |
-| Script Writer | Removed from current app source | No route, screen, menu entry, or matching implementation remains in Android or the deleted server tree. |
-| Thumbnail tool | Removed from current app source | No current screen, menu entry, thumbnail entity, or thumbnail editing implementation remains. |
-| Creator tools hub, dead routes, stale setup docs | Removed/rewritten | `DroidCraftNavHost.kt` now has only the three destinations above. `README.md`, `JARVIS.md`, and `ARCHITECTURE.md` describe the current Jarvis app rather than the retired feature set. `server/` and `SOCIAL_SETUP.md` are absent. |
+| Clipper | Removed | The Python backend and app client/screen sources are deleted; no clip route remains in the Android navigation or source tree. |
+| Dubbing | Removed | The Python backend and app client/screen sources are deleted; no Android destination or menu entry exists. |
+| Voice Studio / server TTS | Removed | The server TTS and app Studio TTS implementations/endpoints are deleted; normal Jarvis speech is separate in `ai/GeminiTtsClient.kt`. |
+| Upload Helper / upload-QC screens | Removed | Studio UI, QC code, backend endpoints, and deployment files are deleted. |
+| Script Writer | Removed | Studio implementation and screen are deleted; no route or menu entry remains. |
+| Thumbnail tool | Removed | Studio thumbnail implementation and screen are deleted; no current entity or editing path remains. |
+| Social publishing / OAuth / queues | Removed | The complete `app/social/` implementation, workers, OAuth flow, backend, and `SOCIAL_SETUP.md` are deleted. |
+| Creator tools hub and stale setup docs | Removed/rewritten | `DroidCraftNavHost.kt` has only the three destinations above. `README.md`, `JARVIS.md`, and `ARCHITECTURE.md` describe the current Jarvis app rather than creator features. `app/studio/`, `app/social/`, `server/`, and `SOCIAL_SETUP.md` are absent. |
 
 `AppDatabase.kt` is now memory-only at the Room entity/DAO level. Its one-time 6→7 migration contains `DROP TABLE IF EXISTS` statements for obsolete tables to preserve existing memory while cleaning older installations; it is migration cleanup, not retained feature logic. `APK_GENERATION_GUIDE.md` still names Android Studio as an IDE only; that is unrelated to an app destination or creator feature.
 
