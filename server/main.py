@@ -11,6 +11,8 @@ import time
 import threading
 import logging
 import tempfile
+import base64
+import os
 import uuid
 from uuid import uuid4
 from datetime import datetime, timezone
@@ -30,6 +32,17 @@ log = logging.getLogger("jarvis-social")
 
 DB_PATH = Path(__file__).parent / "jarvis_social.db"
 app = FastAPI(title="Jarvis Social Relay")
+
+# Optional YouTube cookies for yt-dlp deployments that need authenticated access.
+_youtube_cookies_b64 = os.environ.get("YT_COOKIES_B64", "").strip()
+if _youtube_cookies_b64:
+    try:
+        cookies_path = Path("/tmp/yt_cookies.txt")
+        cookies_path.write_bytes(base64.b64decode(_youtube_cookies_b64))
+        cookies_path.chmod(0o600)
+        log.info("YouTube cookies loaded from YT_COOKIES_B64")
+    except Exception as error:
+        log.warning("Could not decode YT_COOKIES_B64: %s", error.__class__.__name__)
 
 # ------------------------------------------------------------------ DB
 
