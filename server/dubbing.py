@@ -49,8 +49,9 @@ def prepare(job_id: str, url: str, lang: str = "hi"):
             work_dir = Path(tempfile.mkdtemp(prefix="dub_"))
             video = work_dir / "source.mp4"
             # yt-dlp से download
+            _ck = ["--cookies", "/tmp/yt_cookies.txt"] if Path("/tmp/yt_cookies.txt").exists() else []
             r = _run(["yt-dlp", "-f", "bv*[height<=1080]+ba/b", "--merge-output-format", "mp4",
-                                "--extractor-args", "youtube:player_client=android,tv,web,ios",
+                                "--extractor-args", "youtube:player_client=android,tv,web,ios", *_ck,
                       "-o", str(video), url], timeout=1200)
             if r.returncode != 0 or not video.exists():
                 job.update(status="failed", error=f"download fail: {r.stderr[:300]}")
