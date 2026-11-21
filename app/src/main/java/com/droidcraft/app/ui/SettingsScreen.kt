@@ -548,6 +548,7 @@ private fun voiceModeDescription(mode: VoiceMode): String = when (mode) {
     VoiceMode.SMART -> "Strong emotion prefers ElevenLabs when the server and key are configured; other emotions can use VoxCPM2 on that server. Neutral and humour use Gemini TTS."
 }
 
+@Composable
 private fun ModelChoiceCard(
     modelId: String,
     description: String,
