@@ -10,7 +10,10 @@ import com.droidcraft.app.ai.GeminiLiveVoiceSession
 import com.droidcraft.app.ai.LiveToolExecutor
 import com.droidcraft.app.data.GeminiApiKeyStore
 import com.droidcraft.app.data.GeminiModelSettings
+import com.droidcraft.app.jarvis.JarvisCommandParser
+import com.droidcraft.app.jarvis.JarvisIntentType
 import com.droidcraft.app.jarvis.character.JarvisCharacter
+import org.json.JSONObject
 import com.droidcraft.app.jarvis.voice.SpokenTextCleaner
 import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.model.LiveConversationMessage
@@ -295,6 +298,25 @@ class JarvisConversationViewModel(application: Application) : AndroidViewModel(a
                         appendLiveMessage(text, isUser = true)
                         liveActivityId?.let { HomeActivityTracker.update(it, "Received your live transcript") }
                         _liveUserDraft.value = ""
+                        // Fast path: a clear "open <app>" command runs locally at once,
+                        // without waiting for the model. Opening an app twice is harmless,
+                        // so this stays safe even if the model also acts on the same words.
+                        val fastIntent = JarvisCommandParser.parse(text)
+                        if (fastIntent?.type == JarvisIntentType.OPEN_APP) {
+                            val appName = fastIntent.args["query"].orEmpty()
+                            val executor = liveToolExecutor
+                            if (appName.isNotBlank() && executor != null) {
+                                viewModelScope.launch {
+                                    runCatching {
+                                        executor.execute(
+                                            "launch_app_by_name",
+                                            JSONObject().put("app_name", appName),
+                                            text
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         _liveUserDraft.value = text
                     }
