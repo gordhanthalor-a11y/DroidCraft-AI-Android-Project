@@ -41,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -88,7 +89,7 @@ fun SettingsScreen(
     conversationViewModel: JarvisConversationViewModel,
     jarvisViewModel: JarvisViewModel,
     energy: Float,
-    phase: Float,
+    phase: State<Float>,
     onBack: () -> Unit,
     onOpenMemories: () -> Unit = {}
 ) {
@@ -642,7 +643,7 @@ private fun permissionState(context: android.content.Context, permission: String
     if (ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) "granted" else "not granted"
 
 @Composable
-private fun SettingsCard(energy: Float, phase: Float, content: @Composable () -> Unit) {
+private fun SettingsCard(energy: Float, phase: State<Float>, content: @Composable () -> Unit) {
     EnergyCard(
         modifier = Modifier.fillMaxWidth(),
         energy = energy,
