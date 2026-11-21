@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -24,14 +25,15 @@ import kotlin.math.sin
 
 /** Soft four-edge aura and moving light traces, driven by the same conversation energy as the orb. */
 @Composable
-fun EnergyBackdrop(modifier: Modifier, energy: Float, phase: Float) {
+fun EnergyBackdrop(modifier: Modifier, energy: Float, phase: State<Float>) {
     val primary = MaterialTheme.colorScheme.primary
     val accent = MaterialTheme.colorScheme.tertiary
     Canvas(modifier) {
+        val phase = phase.value
         val intensity = (0.035f + energy.coerceIn(0f, 1f) * 0.22f + sin(phase * 6.283f) * 0.018f)
             .coerceIn(0.015f, 0.30f)
         val edgeDepth = size.minDimension * 0.16f
-        drawRect(
+            drawRect(
             Brush.verticalGradient(
                 listOf(primary.copy(alpha = intensity), Color.Transparent),
                 startY = 0f,
@@ -89,7 +91,7 @@ fun EnergyBackdrop(modifier: Modifier, energy: Float, phase: Float) {
 fun EnergyCard(
     modifier: Modifier = Modifier,
     energy: Float,
-    phase: Float,
+    phase: State<Float>,
     content: @Composable () -> Unit
 ) {
     val primary = MaterialTheme.colorScheme.primary
@@ -97,6 +99,7 @@ fun EnergyCard(
     val shape = RoundedCornerShape(18.dp)
     Surface(
         modifier = modifier.drawWithContent {
+            val phase = phase.value
             drawContent()
             val alpha = (0.16f + energy.coerceIn(0f, 1f) * 0.24f + sin(phase * 6.283f) * 0.035f)
                 .coerceIn(0.10f, 0.48f)
@@ -121,7 +124,7 @@ fun EnergyActionButton(
     label: String,
     enabled: Boolean,
     energy: Float,
-    phase: Float,
+    phase: State<Float>,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -131,6 +134,7 @@ fun EnergyActionButton(
     Surface(
         modifier = modifier
             .drawWithContent {
+                val phase = phase.value
                 drawContent()
                 drawRoundRect(
                     brush = Brush.linearGradient(
