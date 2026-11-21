@@ -199,6 +199,9 @@ class JarvisDevice(private val context: Context) {
 
     // ---------------- apps / intents ----------------
 
+    /** The user's latest words, set by the view model before each execution; used for tap policy. */
+    @Volatile var currentUserText: String = ""
+
     private fun openApp(query: String): JarvisOutcome {
         val rawQuery = query.trim()
         if (rawQuery.isBlank()) return JarvisOutcome("Which app should I open? Give me its name.", false)
@@ -207,13 +210,17 @@ class JarvisDevice(private val context: Context) {
         }
         val needle = normalizeLabel(rawQuery)
         val apps = launcherApps()
-        val exact = apps.filter { normalizeLabel(it.first) == needle }
-        val candidates = if (exact.isNotEmpty()) exact else apps.filter { normalizeLabel(it.first).startsWith(needle) }
+        fun keyOf(label: String): String = stripMatras(normalizeLabel(label)).replace(" ", "")
+        val needleKey = keyOf(rawQuery)
+        val exact = apps.filter { keyOf(it.first) == needleKey }
+        val prefix = apps.filter { keyOf(it.first).startsWith(needleKey) }
+        val contains = apps.filter { keyOf(it.first).contains(needleKey) || needleKey.contains(keyOf(it.first)) }
+        val candidates = if (exact.isNotEmpty()) exact else if (prefix.isNotEmpty()) prefix else contains
         val distinct = candidates.distinctBy { it.second.component?.packageName ?: it.first }
         return when (distinct.size) {
             1 -> openIntent(distinct.single().second, "Opening ${distinct.single().first}.")
-            0 -> JarvisOutcome("No installed app has the unambiguous launcher name '$rawQuery'. No other app was opened.", false)
-            else -> JarvisOutcome("More than one app matches '$rawQuery'. Name the exact app; nothing was opened.", false)
+            0 -> JarvisOutcome("No installed app matches '$rawQuery'. No other app was opened.", false)
+            else -> JarvisOutcome("More than one app matches '$rawQuery': ${distinct.joinToString(", ") { it.first }}. Ask the user which one; nothing was opened.", false)
         }
     }
 
@@ -229,6 +236,9 @@ class JarvisDevice(private val context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    private fun stripMatras(value: String): String =
+        value.replace(Regex("[\\u093C\\u093E-\\u094D\\u0900-\\u0903\\u0962-\\u0963\\u200C\\u200D]"), "")
+
     private fun normalizeLabel(label: String): String {
         val alias = mapOf(
             "gpay" to "google pay", "googlepay" to "google pay",
@@ -239,7 +249,12 @@ class JarvisDevice(private val context: Context) {
             "gallery" to "photos", "photos" to "photos",
             "clock" to "clock", "alarm" to "clock",
             "calculator" to "calculator", "calc" to "calculator",
-            "telegram" to "telegram", "tg" to "telegram"
+            "telegram" to "telegram", "tg" to "telegram",
+            "वाट्सएप" to "whatsapp", "व्हाट्सएप" to "whatsapp", "वॉट्सऐप" to "whatsapp",
+            "यूट्यूब" to "youtube", "चैटजीपीटी" to "chatgpt", "चैट जीपीटी" to "chatgpt",
+            "टेलीग्राम" to "telegram", "इंस्टाग्राम" to "instagram", "फेसबुक" to "facebook",
+            "जीमेल" to "gmail", "क्रोम" to "chrome", "गूगल" to "google",
+            "फोनपे" to "phonepe", "पेटीएम" to "paytm", "गूगल पे" to "google pay"
         )
         return alias[label.trim().lowercase()] ?: label.trim().lowercase()
     }
@@ -282,9 +297,15 @@ class JarvisDevice(private val context: Context) {
         if (!RuntimePermissionGate.request(context, Manifest.permission.READ_CONTACTS)) {
             return JarvisOutcome("Contacts permission was denied. No contact data was read.", false)
         }
-        val contact = withContext(Dispatchers.IO) { contacts.resolve(query) }
-            ?: return JarvisOutcome("No single unambiguous contact matched '$query'.", false)
-        return JarvisOutcome("Contact match: ${contact.name}, ${contact.number}.")
+        val matches = withContext(Dispatchers.IO) { contacts.resolveCandidates(query) }
+        if (matches.isEmpty()) return JarvisOutcome("No contact matched '$query', even allowing small spelling differences.", false)
+        if (matches.size == 1) {
+            val contact = matches.single()
+            return JarvisOutcome("Contact match: ${contact.name}, ${contact.number}.")
+        }
+        val listing = matches.mapIndexed { index, contact -> "${index + 1}) ${contact.name} — ${contact.number}" }
+            .joinToString("\n")
+        return JarvisOutcome("Kai contact mile '$query' se. User ko ye number ke saath batao aur poochho kaunsa wala chahiye; user number ya naam bole to usi contact se kaam aage badhao:\n$listing")
     }
 
     private fun setAlarm(hour: Int, minute: Int): JarvisOutcome {
@@ -400,14 +421,15 @@ class JarvisDevice(private val context: Context) {
         when (val decision = com.droidcraft.app.jarvis.a11y.ActionSafety.assessTap(
             target,
             service.activeWindowPackageName(),
-            service.activeWindowAppLabel()
+            service.activeWindowAppLabel(),
+            currentUserText
         )) {
             is com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.Blocked -> return JarvisOutcome(decision.reason, false)
             is com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.RequiresConfirmation ->
                 if (!confirmedByUser) return JarvisOutcome(decision.reason, false)
             com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.Allowed -> Unit
         }
-        return when (val result = service.tapText(target, confirmedByUser, expectedPackageName)) {
+        return when (val result = service.tapText(target, confirmedByUser, expectedPackageName), currentUserText) {
             LabelTapResult.Tapped -> JarvisOutcome("Tapped the unique visible control labelled '$target'.")
             is LabelTapResult.Refused -> JarvisOutcome(result.reason, false)
             is LabelTapResult.NotFound -> JarvisOutcome(result.reason, false)
