@@ -26,14 +26,6 @@ jobs:
       - name: Set up Gradle dependency cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Validate committed PKCS#12 debug keystore
-        env:
-          DEBUG_KEYSTORE_PASSWORD: DroidCraftDebugKey2026
-        run: >-
-          keytool -list -keystore keystore/droidcraft-debug.keystore
-          -storetype PKCS12 -storepass "$DEBUG_KEYSTORE_PASSWORD" -alias droidcraft
-          >/dev/null
-
       - name: Build Debug APK
         shell: bash
         run: |

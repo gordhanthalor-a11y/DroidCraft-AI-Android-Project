@@ -5,10 +5,6 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// Fixed debug identity for personal sideloaded builds; keep this key stable across CI builds.
-val droidcraftDebugSigningPassword = "DroidCraftDebugKey2026"
-val droidcraftDebugSigningAlias = "droidcraft"
-
 android {
     namespace = "com.droidcraft.app"
     compileSdk = 35
@@ -23,20 +19,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    signingConfigs {
-        create("droidcraftDebug") {
-            storeFile = rootProject.file("keystore/droidcraft-debug.keystore")
-            storePassword = droidcraftDebugSigningPassword
-            keyAlias = droidcraftDebugSigningAlias
-            keyPassword = droidcraftDebugSigningPassword
-            storeType = "PKCS12"
-        }
-    }
-
+    // Keep Android's standard debug signing for local/CI debug builds. Never ship a private
+    // signing key or its password in this repository; production signing belongs in secure CI secrets.
     buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("droidcraftDebug")
-        }
         getByName("release") {
             isMinifyEnabled = true
             proguardFiles(
@@ -64,34 +49,24 @@ dependencies {
     // Jetpack Compose & Material 3
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
+    implementation("androidx.compose.animation:animation")
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation(libs.androidx.navigation.compose)
 
     // Android Room SQLite
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // Android WorkManager
-    implementation(libs.androidx.work.runtime.ktx)
-
-    // Retrofit & Networking
-    implementation(libs.retrofit)
+    // Gemini network clients
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation(libs.retrofit.converter.gson)
-    implementation(libs.coil.compose)
 
     // Kotlin Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
-    // EncryptedSharedPreferences for local API keys and OAuth credentials
+    // EncryptedSharedPreferences for the Gemini API key
     implementation(libs.androidx.security.crypto)
-
-    // Offline, on-device wake-word detection
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
-    implementation("com.alphacephei:vosk-android:0.3.75@aar")
 }

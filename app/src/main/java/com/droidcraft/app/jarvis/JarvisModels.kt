@@ -21,17 +21,21 @@ enum class JarvisIntentType {
     BATTERY,
     DEVICE_INFO,
     SCREEN_DUMP,
+    SCREENSHOT,
     TAP,
-    AUTOMATE,
-    SOCIAL_DASHBOARD,
-    POST_SCHEDULE,
-    STUDIO_VOICE,
-    STUDIO_QC,
+    SWIPE,
+    SCROLL,
+    NAVIGATE,
+    CONTACT_LOOKUP,
+    CALENDAR_READ,
+    NOTIFICATIONS_READ,
+    REMINDER_ADD,
+    BATTERY_EXEMPTION,
+    TYPE_TEXT,
     MEMORY,
     JOKE,
     GREETING,
     IDENTITY,
-    CREATOR_HELP,
     UNKNOWN
 }
 
@@ -50,6 +54,12 @@ data class JarvisMessage(
     val kind: JarvisMessageKind = JarvisMessageKind.TEXT
 )
 
+data class PendingTapConfirmation(
+    val target: String,
+    val reason: String,
+    val expectedPackageName: String
+)
+
 data class JarvisNote(
     val id: Long,
     val text: String,
@@ -59,7 +69,9 @@ data class JarvisNote(
 /** Device action ka result. */
 data class JarvisOutcome(
     val message: String,
-    val success: Boolean = true
+    val success: Boolean = true,
+    /** A user-requested screenshot is passed ephemerally to Gemini for this turn only. */
+    val imagePng: ByteArray? = null
 )
 
 /** Gemini brain ka structured jawab. */

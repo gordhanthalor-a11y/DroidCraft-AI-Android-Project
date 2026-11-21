@@ -10,8 +10,19 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.sqrt
 
-/** Single-threaded PCM output queue shared by Gemini's live audio and ElevenLabs PCM audio. */
+/** Actual short-window PCM playback level shared with the animated Jarvis orb. */
+object AudioOutputLevel {
+    private val _level = MutableStateFlow(0f)
+    val level: StateFlow<Float> = _level.asStateFlow()
+    internal fun update(value: Float) { _level.value = value.coerceIn(0f, 1f) }
+}
+
+/** Single-threaded PCM output queue shared by Gemini-generated and Gemini Live audio. */
 internal class PcmAudioPlayer {
     private val closed = AtomicBoolean(false)
     private val executor = ThreadPoolExecutor(
@@ -31,6 +42,7 @@ internal class PcmAudioPlayer {
     fun enqueue(
         pcm: ByteArray,
         shouldPlay: () -> Boolean = { true },
+        onPlaybackStart: (() -> Unit)? = null,
         afterPlayback: (() -> Unit)? = null
     ) {
         if (closed.get()) return
@@ -43,10 +55,13 @@ internal class PcmAudioPlayer {
             executor.execute {
                 try {
                     if (isCurrent() && pcm.isNotEmpty()) {
+                        runCatching { onPlaybackStart?.invoke() }
                         val output = getOrCreateTrack()
                         var offset = 0
                         while (isCurrent() && offset < pcm.size) {
-                            val written = output.write(pcm, offset, pcm.size - offset, WRITE_BLOCKING)
+                            val count = minOf(1_920, pcm.size - offset) // 40 ms at 24 kHz mono PCM16
+                            AudioOutputLevel.update(rmsLevel(pcm, offset, count))
+                            val written = output.write(pcm, offset, count, WRITE_BLOCKING)
                             if (written <= 0) break
                             offset += written
                         }
@@ -54,7 +69,10 @@ internal class PcmAudioPlayer {
                 } catch (_: Exception) {
                     // Keep the live session alive if this device cannot initialize or write PCM audio.
                 } finally {
-                    if (isCurrent()) runCatching { afterPlayback?.invoke() }
+                    if (isCurrent()) {
+                        AudioOutputLevel.update(0f)
+                        runCatching { afterPlayback?.invoke() }
+                    }
                 }
             }
         }
@@ -64,6 +82,7 @@ internal class PcmAudioPlayer {
     fun flush() {
         if (closed.get()) return
         playbackGeneration.incrementAndGet()
+        AudioOutputLevel.update(0f)
         executor.queue.clear()
         runCatching {
             track?.let { output ->
@@ -88,6 +107,7 @@ internal class PcmAudioPlayer {
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         playbackGeneration.incrementAndGet()
+        AudioOutputLevel.update(0f)
         executor.queue.clear()
         runCatching {
             executor.execute {
@@ -98,6 +118,22 @@ internal class PcmAudioPlayer {
             }
             executor.shutdown()
         }
+    }
+
+    private fun rmsLevel(pcm: ByteArray, offset: Int, byteCount: Int): Float {
+        val end = offset + byteCount - 1
+        var sumSquares = 0.0
+        var samples = 0
+        var index = offset
+        while (index < end) {
+            val littleEndian = (pcm[index].toInt() and 0xFF) or (pcm[index + 1].toInt() shl 8)
+            val normalized = littleEndian.toShort().toInt() / 32_768.0
+            sumSquares += normalized * normalized
+            samples++
+            index += 2
+        }
+        if (samples == 0) return 0f
+        return (sqrt(sumSquares / samples) * 3.2).toFloat().coerceIn(0f, 1f)
     }
 
     private fun getOrCreateTrack(): AudioTrack {

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
@@ -60,7 +61,7 @@ private val memoryCategories = listOf("All", "Personal", "Preferences", "Contact
 private val editableCategories = memoryCategories.drop(1)
 
 @Composable
-fun MemoriesScreen() {
+fun MemoriesScreen(onBack: () -> Unit = {}) {
     val jarvisViewModel: JarvisViewModel = viewModel()
     val memories by jarvisViewModel.memories.collectAsState()
     val loading by jarvisViewModel.memoryLoading.collectAsState()
@@ -95,6 +96,7 @@ fun MemoriesScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back to Settings") }
             Column(Modifier.weight(1f)) {
                 Text("Memories", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(

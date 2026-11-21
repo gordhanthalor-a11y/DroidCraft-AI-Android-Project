@@ -1,38 +1,32 @@
 package com.droidcraft.app.ui
 
 import android.Manifest
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -41,11 +35,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,690 +51,441 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.droidcraft.app.jarvis.JarvisViewModel
-import com.droidcraft.app.jarvis.voice.VoiceMode
+import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
+import com.droidcraft.app.jarvis.overlay.JarvisBodyService
 import com.droidcraft.app.jarvis.voice.VoiceSettings
-import com.droidcraft.app.model.LiveVoiceMode
-import com.droidcraft.app.studio.StudioSettings
-import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
+import com.droidcraft.app.ai.EchoControlMode
+import com.droidcraft.app.data.ActionDecisionStore
+import com.droidcraft.app.data.AiProvider
+import com.droidcraft.app.data.AiProviderSettings
+import com.droidcraft.app.data.AiProviderTelemetry
+import com.droidcraft.app.data.CapabilitySettings
+import com.droidcraft.app.data.JarvisCapability
+import com.droidcraft.app.ai.LiveVoiceSettings
+import com.droidcraft.app.activity.HomeActivityStatus
+import com.droidcraft.app.activity.HomeActivityTracker
+import com.droidcraft.app.jarvis.notifications.NotificationStore
+import com.droidcraft.app.ui.theme.OrbTheme
+import com.droidcraft.app.ui.theme.OrbThemeSettings
+import com.droidcraft.app.viewmodel.JarvisConversationViewModel
 
 @Composable
 fun SettingsScreen(
-    viewModel: YouTubeAutomationViewModel,
-    onOpenLiveTalk: () -> Unit
+    conversationViewModel: JarvisConversationViewModel,
+    jarvisViewModel: JarvisViewModel,
+    energy: Float,
+    phase: Float,
+    onBack: () -> Unit,
+    onOpenMemories: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val jarvisViewModel: JarvisViewModel = composeViewModel()
-    val handsFree by jarvisViewModel.handsFree.collectAsState()
-    val selectedVoice by viewModel.liveVoiceMode.collectAsState()
-    val hasGeminiKey by viewModel.hasGeminiKey.collectAsState()
-    val hasElevenLabsKey by viewModel.hasElevenLabsKey.collectAsState()
-    val modelOrder by viewModel.geminiModelOrder.collectAsState()
-    val isRefreshingModels by viewModel.refreshingGeminiModels.collectAsState()
-    val modelSettingsMessage by viewModel.geminiModelSettingsMessage.collectAsState()
-    val testingConnection by viewModel.testingGeminiConnection.collectAsState()
-    val connectionStatus by viewModel.geminiConnectionStatus.collectAsState()
-    val pingMs by viewModel.geminiPingMs.collectAsState()
-    var modelOrderText by remember { mutableStateOf(modelOrder.joinToString(System.lineSeparator())) }
-    var modelOrderError by remember { mutableStateOf("") }
-    var studioServerUrl by remember { mutableStateOf(StudioSettings.serverUrl(context)) }
-    var studioServerMessage by remember { mutableStateOf("") }
-    var studioServerSaved by remember { mutableStateOf(false) }
-    var wakeListenerMessage by remember { mutableStateOf("") }
-    var elevenVoiceId by remember { mutableStateOf(VoiceSettings.elevenVoiceId(context)) }
-    var elevenVoiceIdMessage by remember { mutableStateOf("") }
-    var jarvisVoiceMode by remember { mutableStateOf(VoiceSettings.mode(context)) }
-    var voiceModeMenuExpanded by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val hasGeminiKey by conversationViewModel.hasGeminiKey.collectAsState()
+    val connectionStatus by conversationViewModel.geminiConnectionStatus.collectAsState()
+    val pingMs by conversationViewModel.geminiPingMs.collectAsState()
+    val liveStatus by conversationViewModel.liveStatus.collectAsState()
+    val liveNotice by conversationViewModel.liveNotice.collectAsState()
+    val activityRecords by HomeActivityTracker.records.collectAsState()
+    val actionDecisions by ActionDecisionStore.records.collectAsState()
+    var latencySnapshot by remember { mutableStateOf(AiProviderTelemetry.all(context)) }
+    val testingConnection by conversationViewModel.testingGeminiConnection.collectAsState()
+    val modelOrder by conversationViewModel.geminiModelOrder.collectAsState()
+    val modelMessage by conversationViewModel.geminiModelSettingsMessage.collectAsState()
+    val refreshingModels by conversationViewModel.refreshingGeminiModels.collectAsState()
+    val autoSpeak by jarvisViewModel.autoSpeak.collectAsState()
+    val orbTheme by OrbThemeSettings.selected.collectAsState()
+    var selectedProvider by remember { mutableStateOf(AiProviderSettings.activeProvider(context)) }
+    val selectedProviderHasKey = AiProviderSettings.hasKey(context, selectedProvider)
+    var providerKeyInput by remember { mutableStateOf("") }
+    var providerFastModel by remember { mutableStateOf(AiProviderSettings.readModels(context, selectedProvider).first) }
+    var providerStrongModel by remember { mutableStateOf(AiProviderSettings.readModels(context, selectedProvider).second) }
+    var providerFastMenu by remember { mutableStateOf(false) }
+    var providerStrongMenu by remember { mutableStateOf(false) }
+    var liveModel by remember { mutableStateOf(LiveVoiceSettings.liveModel(context)) }
+    var echoMode by remember { mutableStateOf(LiveVoiceSettings.echoMode(context)) }
+    var silenceDurationMs by remember { mutableStateOf(LiveVoiceSettings.silenceDurationMs(context)) }
+    var liveModelMenu by remember { mutableStateOf(false) }
+    var modelOrderInput by remember { mutableStateOf(modelOrder.joinToString("\n")) }
+    var keyNotice by remember { mutableStateOf("") }
     var geminiVoice by remember { mutableStateOf(VoiceSettings.geminiVoice(context)) }
-    var geminiVoiceMenuExpanded by remember { mutableStateOf(false) }
-    var smartVoxCpmEnabled by remember { mutableStateOf(VoiceSettings.emotionVoiceEnabled(context)) }
-    val microphonePermission = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            jarvisViewModel.setHandsFree(true)
-            wakeListenerMessage = "Offline wake listening is starting. First use downloads the small models once."
-        } else {
-            jarvisViewModel.setHandsFree(false)
-            wakeListenerMessage = "Allow microphone access before enabling offline wake listening."
-        }
+    var bubbleNotice by remember { mutableStateOf("") }
+    var voiceMenu by remember { mutableStateOf(false) }
+    var accessibilityEnabled by remember { mutableStateOf(JarvisAccessibilityService.isEnabled(context)) }
+    var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var bubbleRunning by remember { mutableStateOf(JarvisBodyService.isBodyEnabled(context)) }
+    var enabledCapabilities by remember {
+        mutableStateOf(JarvisCapability.values().associateWith { CapabilitySettings.isEnabled(context, it) })
     }
 
-    LaunchedEffect(modelOrder) {
-        modelOrderText = modelOrder.joinToString(System.lineSeparator())
+    LaunchedEffect(modelOrder) { modelOrderInput = modelOrder.joinToString("\n") }
+    LaunchedEffect(selectedProvider) {
+        AiProviderSettings.setActiveProvider(context, selectedProvider)
+        providerKeyInput = if (selectedProvider == AiProvider.GEMINI) "" else AiProviderSettings.readKey(context, selectedProvider)
+        val models = AiProviderSettings.readModels(context, selectedProvider)
+        providerFastModel = models.first
+        providerStrongModel = models.second
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessibilityEnabled = JarvisAccessibilityService.isEnabled(context)
+                overlayGranted = Settings.canDrawOverlays(context)
+                bubbleRunning = JarvisBodyService.isBodyEnabled(context)
+                latencySnapshot = AiProviderTelemetry.all(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val accessibilityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        accessibilityEnabled = JarvisAccessibilityService.isEnabled(context)
+    }
+    val overlayLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        overlayGranted = Settings.canDrawOverlays(context)
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("DROIDCRAFT · SYSTEM CONFIGURATION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                "Voice, model access, and connected services.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        ConnectionStatusCard(
-            hasGeminiKey = hasGeminiKey,
-            testing = testingConnection,
-            status = connectionStatus,
-            pingMs = pingMs,
-            onTest = viewModel::testGeminiConnection
-        )
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(20.dp)
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGroupHeader(
-                    icon = Icons.Default.Mic,
-                    title = "Offline wake phrase",
-                    subtitle = "Vosk listens locally for ‘Hey Jarvis’ in Hindi and English."
-                )
-                Text(
-                    "The first start downloads the compact Hindi and Indian English models once (about 82 MB). Wake-word recognition then runs on-device; only the wake phrase is checked.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (handsFree) "Wake listener enabled" else "Wake listener off",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            if (handsFree) "An ongoing notification shows when it is listening." else "Allow microphone access to turn it on.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = handsFree,
-                        onCheckedChange = { enabled ->
-                            if (!enabled) {
-                                jarvisViewModel.setHandsFree(false)
-                                wakeListenerMessage = "Offline wake listening stopped."
-                            } else if (ContextCompat.checkSelfPermission(
-                                    context, Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                jarvisViewModel.setHandsFree(true)
-                                wakeListenerMessage = "Offline wake listening is starting. First use downloads the small models once."
-                            } else {
-                                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
-                    )
-                }
-                if (wakeListenerMessage.isNotBlank()) {
-                    Text(wakeListenerMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+            Column(Modifier.weight(1f)) {
+                Text("JARVIS · SETTINGS", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             }
         }
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(20.dp)
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGroupHeader(
-                    icon = Icons.Default.GraphicEq,
-                    title = "Live voice",
-                    subtitle = "Choose the voice path used in Live Talk."
-                )
-                LiveVoiceMode.values().forEach { mode ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { viewModel.setLiveVoiceMode(mode) },
-                        shape = RoundedCornerShape(15.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (selectedVoice == mode) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surface
-                        )
+        SettingsCard(energy, phase) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                SectionHeading(Icons.Default.GraphicEq, "Appearance", "Orb theme and Live audio behaviour.")
+                Text("Orb theme", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                OrbTheme.values().forEach { theme ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { OrbThemeSettings.set(context, theme) },
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedVoice == mode,
-                                onClick = { viewModel.setLiveVoiceMode(mode) }
-                            )
-                            Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
-                                Text(mode.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    mode.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                if (mode == LiveVoiceMode.ELEVENLABS) {
-                                    Text(
-                                        "${VoiceSettings.voiceName(elevenVoiceId)} · selected voice · Gemini remains the fallback",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                        RadioButton(selected = orbTheme == theme, onClick = { OrbThemeSettings.set(context, theme) })
+                        Text(theme.label, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
+                    }
+                }
+                Text("Live model", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                OutlinedButton(onClick = { liveModelMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(liveModel.removePrefix("models/"))
+                }
+                DropdownMenu(expanded = liveModelMenu, onDismissRequest = { liveModelMenu = false }) {
+                    LiveVoiceSettings.liveModels.forEach { model ->
+                        DropdownMenuItem(
+                            text = { Text(model.removePrefix("models/")) },
+                            onClick = {
+                                liveModel = model
+                                LiveVoiceSettings.setLiveModel(context, model)
+                                liveModelMenu = false
                             }
+                        )
+                    }
+                }
+                Text("Playback echo mode · ${echoMode.label}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                EchoControlMode.values().forEach { mode ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = echoMode == mode, onClick = {
+                            echoMode = mode
+                            LiveVoiceSettings.setEchoMode(context, mode)
+                        })
+                        Text(mode.label, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
+                    }
+                }
+                Text("End-of-turn silence · ${silenceDurationMs} ms", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Slider(
+                    value = silenceDurationMs.toFloat(),
+                    onValueChange = { silenceDurationMs = (it / 100f).toInt() * 100 },
+                    onValueChangeFinished = { LiveVoiceSettings.setSilenceDurationMs(context, silenceDurationMs) },
+                    valueRange = 200f..2_000f,
+                    steps = 17
+                )
+                TextButton(onClick = onOpenMemories, modifier = Modifier.fillMaxWidth()) { Text("Open Jarvis memory") }
+            }
+        }
+
+        SettingsCard(energy, phase) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                SectionHeading(Icons.Default.Key, "AI provider and key slots", "Gemini is the default. Each provider uses a separate encrypted key slot; configured providers may be tried in fallback order.")
+                AiProvider.values().forEach { provider ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { selectedProvider = provider },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = selectedProvider == provider, onClick = { selectedProvider = provider })
+                        Column {
+                            Text(provider.displayName, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text(provider.summary, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                         }
                     }
                 }
-                Text(
-                    "Gemini Live handles listening and replies. With ElevenLabs selected, reply text is spoken using the voice ID saved below. " +
-                        "If ElevenLabs credits or service run out, Jarvis switches to Gemini TTS's free preset voice in the same conversation.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 OutlinedTextField(
-                    value = elevenVoiceId,
-                    onValueChange = { elevenVoiceId = it },
-                    label = { Text("ElevenLabs voice ID") },
-                    placeholder = { Text(VoiceSettings.DEFAULT_ELEVEN_VOICE) },
+                    value = providerKeyInput,
+                    onValueChange = { providerKeyInput = it; keyNotice = "" },
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("${selectedProvider.displayName} API key") },
+                    placeholder = { Text(if (selectedProviderHasKey) "Key saved · paste a replacement" else "Paste ${selectedProvider.displayName} API key") },
+                    visualTransformation = if (providerKeyInput.isBlank()) VisualTransformation.None else PasswordVisualTransformation(),
                 )
-                Text(
-                    "Default: Bunty. Your saved ID is used by the next Live Talk session.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Button(
-                    onClick = {
-                        runCatching { VoiceSettings.setElevenVoiceId(context, elevenVoiceId) }
-                            .onSuccess {
-                                elevenVoiceId = VoiceSettings.elevenVoiceId(context)
-                                elevenVoiceIdMessage = "ElevenLabs voice ID saved."
-                            }
-                            .onFailure { error ->
-                                elevenVoiceIdMessage = error.message ?: "Could not save this voice ID."
-                            }
-                    },
-                    enabled = elevenVoiceId.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Save voice ID")
-                }
-                if (elevenVoiceIdMessage.isNotBlank()) {
-                    Text(elevenVoiceIdMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-                OutlinedButton(onClick = onOpenLiveTalk, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Mic, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Open Live Talk")
-                }
-            }
-        }
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(20.dp)
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGroupHeader(
-                    icon = Icons.Default.GraphicEq,
-                    title = "Jarvis reply voice",
-                    subtitle = "Choose the voice used for Jarvis chat replies."
-                )
-                Box {
-                    OutlinedButton(
-                        onClick = { voiceModeMenuExpanded = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("${voiceModeTitle(jarvisVoiceMode)} · change")
-                    }
-                    DropdownMenu(
-                        expanded = voiceModeMenuExpanded,
-                        onDismissRequest = { voiceModeMenuExpanded = false }
-                    ) {
-                        VoiceMode.values().forEach { mode ->
-                            DropdownMenuItem(
-                                text = { Text(voiceModeTitle(mode)) },
-                                onClick = {
-                                    VoiceSettings.setMode(context, mode)
-                                    jarvisVoiceMode = mode
-                                    voiceModeMenuExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-                Text(
-                    voiceModeDescription(jarvisVoiceMode),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Use VoxCPM2 for emotional replies", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "In Smart mode, this adds expressive delivery for non-neutral emotion when the server is configured.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = smartVoxCpmEnabled,
-                        enabled = jarvisVoiceMode == VoiceMode.SMART,
-                        onCheckedChange = { enabled ->
-                            VoiceSettings.setEmotionVoiceEnabled(context, enabled)
-                            smartVoxCpmEnabled = enabled
-                        }
-                    )
-                }
-                Box {
-                    OutlinedButton(
-                        onClick = { geminiVoiceMenuExpanded = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Gemini preset voice · $geminiVoice")
-                    }
-                    DropdownMenu(
-                        expanded = geminiVoiceMenuExpanded,
-                        onDismissRequest = { geminiVoiceMenuExpanded = false }
-                    ) {
-                        VoiceSettings.GEMINI_VOICES.forEach { voice ->
-                            DropdownMenuItem(
-                                text = { Text(voice) },
-                                onClick = {
-                                    VoiceSettings.setGeminiVoice(context, voice)
-                                    geminiVoice = voice
-                                    geminiVoiceMenuExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-                Text(
-                    "This preset is used by Gemini TTS in Jarvis chat and as the Live Talk fallback.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        ProviderKeyCard(
-            title = "Gemini API key",
-            description = "Required for chat, Gemini Live conversations, and Gemini TTS speech. Get a key from Google AI Studio.",
-            isSaved = hasGeminiKey,
-            placeholder = "Paste Gemini API key",
-            onSave = viewModel::saveGeminiKey,
-            onRemove = viewModel::clearGeminiKey
-        )
-
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGroupHeader(
-                    icon = Icons.Default.Settings,
-                    title = "Gemini text models",
-                    subtitle = "Ordered fallback choices used for Chat replies."
-                )
-                Text(
-                    "Models are tried from top to bottom. A 503 is retried once after a short pause; 429 and 404 move to the next model automatically. Only after every listed model fails will Chat show an error. Use one model ID per line.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text("PREFERRED FIRST MODEL", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-                modelOrder.forEachIndexed { index, modelId ->
-                    ModelChoiceCard(
-                        modelId = modelId,
-                        description = modelDescription(modelId, index),
-                        selected = modelOrder.firstOrNull() == modelId,
-                        onClick = { viewModel.selectPrimaryGeminiModel(modelId) }
-                    )
-                }
-                OutlinedTextField(
-                    value = modelOrderText,
-                    onValueChange = {
-                        modelOrderText = it
-                        modelOrderError = ""
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    maxLines = 8,
-                    label = { Text("Ordered Gemini model IDs") },
-                    placeholder = { Text("gemini-3.1-flash-lite, gemini-flash-lite-latest, gemini-3.8-flash, gemini-3-flash-preview") }
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         onClick = {
-                            runCatching { viewModel.saveGeminiModelOrder(modelOrderText) }
-                                .onSuccess { saved ->
-                                    modelOrderText = saved.joinToString(System.lineSeparator())
-                                    modelOrderError = ""
-                                }
-                                .onFailure { modelOrderError = it.message ?: "Could not save model order." }
-                        }
-                    ) { Text("Save order") }
-                    OutlinedButton(
-                        onClick = viewModel::refreshAvailableGeminiModels,
-                        enabled = hasGeminiKey && !isRefreshingModels
-                    ) {
-                        Text(if (isRefreshingModels) "Checking…" else "Refresh from Google")
-                    }
-                }
-                TextButton(
-                    onClick = {
-                        val defaults = viewModel.resetGeminiModelOrder()
-                        modelOrderText = defaults.joinToString(System.lineSeparator())
-                        modelOrderError = ""
-                    }
-                ) { Text("Restore defaults") }
-                val modelMessage = modelOrderError.ifBlank { modelSettingsMessage }
-                if (modelMessage.isNotBlank()) {
-                    Text(
-                        modelMessage,
-                        color = if (modelOrderError.isNotBlank() || modelMessage.startsWith("Could not") || modelMessage.startsWith("Add a")) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.primary
+                            if (providerKeyInput.isNotBlank()) {
+                                if (selectedProvider == AiProvider.GEMINI) conversationViewModel.saveGeminiKey(providerKeyInput)
+                                else AiProviderSettings.writeKey(context, selectedProvider, providerKeyInput)
+                                providerKeyInput = ""
+                                keyNotice = "${selectedProvider.displayName} key saved in its own device slot."
+                            }
                         },
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                        enabled = providerKeyInput.isNotBlank()
+                    ) { Text("Save key") }
+                    OutlinedButton(
+                        onClick = {
+                            if (selectedProvider == AiProvider.GEMINI) conversationViewModel.clearGeminiKey()
+                            else AiProviderSettings.writeKey(context, selectedProvider, "")
+                            providerKeyInput = ""
+                            keyNotice = "${selectedProvider.displayName} key removed from this device."
+                        },
+                        enabled = selectedProviderHasKey
+                    ) { Text("Remove key") }
                 }
-            }
-        }
-
-        ProviderKeyCard(
-            title = "ElevenLabs API key",
-            description = "Required only when ElevenLabs (my voice) is selected. The key is stored encrypted on this device and sent to ElevenLabs over HTTPS.",
-            isSaved = hasElevenLabsKey,
-            placeholder = "Paste ElevenLabs API key",
-            onSave = viewModel::saveElevenLabsKey,
-            onRemove = viewModel::clearElevenLabsKey
-        )
-
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsGroupHeader(
-                    icon = Icons.Default.Cloud,
-                    title = "Creator Studio server",
-                    subtitle = "Endpoint for voice, dubbing, clipper, and QC tools."
-                )
-                Text(
-                    "Voice Studio, Dubbing, Clipper, and advanced QC need the deployed Python service. Enter its HTTPS base URL; localhost and emulator addresses will not work on a physical phone.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = studioServerUrl,
-                    onValueChange = {
-                        studioServerUrl = it
-                        studioServerMessage = ""
-                        studioServerSaved = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Base URL") },
-                    placeholder = { Text("https://your-studio-server.example") }
-                )
-                Button(
-                    onClick = {
-                        if (studioServerUrl.isBlank()) {
-                            StudioSettings.setServerUrl(context, "")
-                            studioServerMessage = "Creator Studio server URL cleared."
-                            studioServerSaved = true
-                        } else {
-                            runCatching { StudioSettings.validateServerUrl(studioServerUrl) }
-                                .onSuccess { cleanedUrl ->
-                                    StudioSettings.setServerUrl(context, cleanedUrl)
-                                    studioServerUrl = cleanedUrl
-                                    studioServerMessage = "Creator Studio server saved."
-                                    studioServerSaved = true
-                                }
-                                .onFailure {
-                                    studioServerMessage = it.message.orEmpty()
-                                    studioServerSaved = false
-                                }
+                Text(if (selectedProviderHasKey) "${selectedProvider.displayName} key saved" else "No ${selectedProvider.displayName} key saved", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                if (selectedProvider == AiProvider.GEMINI) {
+                    Text("Gemini connection · $connectionStatus${pingMs?.let { " · measured ${it}ms" }.orEmpty()}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    OutlinedButton(
+                        onClick = conversationViewModel::testGeminiConnection,
+                        enabled = hasGeminiKey && !testingConnection
+                    ) { Text(if (testingConnection) "Testing Gemini…" else "Test Gemini connection") }
+                } else {
+                    Text("${selectedProvider.displayName} fast model", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    OutlinedButton(onClick = { providerFastMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(providerFastModel) }
+                    DropdownMenu(expanded = providerFastMenu, onDismissRequest = { providerFastMenu = false }) {
+                        AiProviderSettings.modelPresets[selectedProvider].orEmpty().forEach { model ->
+                            DropdownMenuItem(text = { Text(model) }, onClick = {
+                                providerFastModel = model
+                                runCatching { AiProviderSettings.writeModel(context, selectedProvider, false, model) }
+                                providerFastMenu = false
+                            })
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Save server URL") }
-                if (studioServerMessage.isNotBlank()) {
-                    Text(
-                        studioServerMessage,
-                        color = if (studioServerSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    }
+                    Text("${selectedProvider.displayName} stronger fallback model", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    OutlinedButton(onClick = { providerStrongMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(providerStrongModel) }
+                    DropdownMenu(expanded = providerStrongMenu, onDismissRequest = { providerStrongMenu = false }) {
+                        AiProviderSettings.modelPresets[selectedProvider].orEmpty().forEach { model ->
+                            DropdownMenuItem(text = { Text(model) }, onClick = {
+                                providerStrongModel = model
+                                runCatching { AiProviderSettings.writeModel(context, selectedProvider, true, model) }
+                                providerStrongMenu = false
+                            })
+                        }
+                    }
                 }
+                if (keyNotice.isNotBlank()) Text(keyNotice, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
             }
         }
 
-        Text(
-            "Voice choice changes apply to the next conversation. The active ElevenLabs choice is not replaced in Settings if a session falls back to Gemini.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
-private fun voiceModeTitle(mode: VoiceMode): String = when (mode) {
-    VoiceMode.PHONE_FREE -> "Phone · offline"
-    VoiceMode.GEMINI_FREE -> "Gemini TTS · free preset"
-    VoiceMode.ELEVENLABS -> "ElevenLabs"
-    VoiceMode.SMALLEST -> "Smallest AI"
-    VoiceMode.HEYGEN -> "HeyGen"
-    VoiceMode.SMART -> "Smart emotion routing"
-}
-
-private fun voiceModeDescription(mode: VoiceMode): String = when (mode) {
-    VoiceMode.PHONE_FREE -> "Use the installed Android voice; works offline."
-    VoiceMode.GEMINI_FREE -> "Use the selected Gemini preset voice. Requires your Gemini API key."
-    VoiceMode.ELEVENLABS -> "Use ElevenLabs for every reply; requires a configured Studio server and key."
-    VoiceMode.SMALLEST -> "Use Smallest AI through your configured Studio server."
-    VoiceMode.HEYGEN -> "Use HeyGen through your configured Studio server."
-    VoiceMode.SMART -> "Strong emotion prefers ElevenLabs when the server and key are configured; other emotions can use VoxCPM2 on that server. Neutral and humour use Gemini TTS."
-}
-
-@Composable
-private fun ModelChoiceCard(
-    modelId: String,
-    description: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            RadioButton(selected = selected, onClick = onClick)
-            Column(Modifier.padding(start = 8.dp, top = 7.dp, bottom = 7.dp)) {
-                Text(modelId, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-private fun modelDescription(modelId: String, index: Int): String = when (modelId) {
-    "gemini-3.1-flash-lite" -> "Recommended · fast, lightweight first choice"
-    "gemini-flash-lite-latest" -> "Latest Flash Lite alias · automatic fallback"
-    "gemini-3.8-flash" -> "Higher-capability Flash · fallback option"
-    "gemini-3-flash-preview" -> "Preview model · final default fallback"
-    else -> "Custom text model · fallback slot ${index + 1}"
-}
-
-@Composable
-private fun ConnectionStatusCard(
-    hasGeminiKey: Boolean,
-    testing: Boolean,
-    status: String,
-    pingMs: Long?,
-    onTest: () -> Unit
-) {
-    val isConnected = status.startsWith("Connected", ignoreCase = true)
-    val isError = status.startsWith("Connection failed", ignoreCase = true)
-    val statusColor = when {
-        isConnected -> MaterialTheme.colorScheme.secondary
-        isError -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(20.dp)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsGroupHeader(
-                icon = Icons.Default.Cloud,
-                title = "Gemini connection",
-                subtitle = "Test model access and measure a live response."
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(9.dp), color = statusColor.copy(alpha = .13f)) {
-                    Icon(Icons.Default.Speed, contentDescription = null, tint = statusColor, modifier = Modifier.padding(8.dp))
+        SettingsCard(energy, phase) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                SectionHeading(Icons.Default.GraphicEq, "Voice", "Gemini TTS with Charon is the normal Jarvis voice. Android phone TTS is reserved for an emergency fallback when Gemini TTS fails.")
+                Text("Primary voice · Gemini TTS · Charon", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Text("If Gemini TTS cannot speak, Jarvis switches to Android phone TTS and labels that fallback in the conversation.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                OutlinedButton(onClick = { voiceMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Gemini preset · $geminiVoice")
                 }
-                Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Text(
-                        if (isConnected) "Connection ready" else if (isError) "Needs attention" else "Connection status",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = statusColor,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(status, style = MaterialTheme.typography.bodySmall, color = statusColor)
-                }
-                when {
-                    testing -> CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                    pingMs != null -> Text("PING · ${pingMs} ms", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
-            }
-            Button(onClick = onTest, enabled = hasGeminiKey && !testing, modifier = Modifier.fillMaxWidth()) {
-                if (testing) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(if (testing) "Testing connection…" else "Test Connection")
-            }
-            Text(
-                if (hasGeminiKey) "Sends a brief test prompt using your configured Gemini fallback order; no API key is shown."
-                else "Save a Gemini API key below to enable the connection test.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsGroupHeader(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    modifier: Modifier = Modifier
-) {
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Surface(shape = RoundedCornerShape(11.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(9.dp))
-        }
-        Column(Modifier.weight(1f).padding(start = 10.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun ProviderKeyCard(
-    title: String,
-    description: String,
-    isSaved: Boolean,
-    placeholder: String,
-    onSave: (String) -> Unit,
-    onRemove: () -> Unit
-) {
-    // Provider credentials intentionally use remember (not rememberSaveable), so they are not
-    // copied into Android's saved-instance-state bundle while being entered.
-    var keyInput by remember(title) { mutableStateOf("") }
-    var showInput by remember { mutableStateOf(false) }
-
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SettingsGroupHeader(
-                    icon = if (title.contains("ElevenLabs", ignoreCase = true)) Icons.Default.GraphicEq else Icons.Default.Lock,
-                    title = title,
-                    subtitle = description,
-                    modifier = Modifier.weight(1f)
-                )
-                if (isSaved) {
-                    Text("SAVED", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                }
-            }
-            if (isSaved) {
-                Text(
-                    "A key is saved securely. It is hidden and will not be shown again.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            OutlinedTextField(
-                value = keyInput,
-                onValueChange = { keyInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text(if (isSaved) "Replace saved key" else "API key") },
-                placeholder = { Text(placeholder) },
-                visualTransformation = if (showInput) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { showInput = !showInput }) {
-                        Icon(
-                            imageVector = if (showInput) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (showInput) "Hide key" else "Show key"
+                DropdownMenu(expanded = voiceMenu, onDismissRequest = { voiceMenu = false }) {
+                    VoiceSettings.GEMINI_VOICES.forEach { voice ->
+                        DropdownMenuItem(
+                            text = { Text(if (voice == "Charon") "$voice · default" else voice) },
+                            onClick = {
+                                geminiVoice = voice
+                                VoiceSettings.setGeminiVoice(context, voice)
+                                voiceMenu = false
+                            }
                         )
                     }
                 }
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = {
-                        if (keyInput.isNotBlank()) {
-                            onSave(keyInput)
-                            keyInput = ""
-                            showInput = false
-                        }
-                    },
-                    enabled = keyInput.isNotBlank()
-                ) {
-                    Text(if (isSaved) "Update key" else "Save key")
-                }
-                if (isSaved) {
-                    TextButton(onClick = {
-                        onRemove()
-                        keyInput = ""
-                    }) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = null)
-                        Text("  Remove")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Speak Jarvis replies", fontWeight = FontWeight.SemiBold)
+                        Text("Live Talk uses its active audio session; Android phone TTS remains its last-resort fallback.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
                     }
+                    Switch(checked = autoSpeak, onCheckedChange = { jarvisViewModel.toggleAutoSpeak() })
                 }
             }
+        }
+
+        SettingsCard(energy, phase) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                SectionHeading(Icons.Default.Settings, "Gemini text models", "Ordered fallback choices for Jarvis replies.")
+                modelOrder.forEachIndexed { index, id ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { conversationViewModel.selectPrimaryGeminiModel(id) }.padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = index == 0, onClick = { conversationViewModel.selectPrimaryGeminiModel(id) })
+                        Column {
+                            Text(id, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text(if (index == 0) "Preferred first" else "Fallback ${index + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = modelOrderInput,
+                    onValueChange = { modelOrderInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("One model ID per line") },
+                    minLines = 3,
+                    maxLines = 8
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        runCatching { conversationViewModel.saveGeminiModelOrder(modelOrderInput) }
+                            .onSuccess { modelOrderInput = it.joinToString("\n") }
+                            .onFailure { keyNotice = it.message.orEmpty() }
+                    }) { Text("Save order") }
+                    OutlinedButton(onClick = conversationViewModel::refreshAvailableGeminiModels, enabled = hasGeminiKey && !refreshingModels) {
+                        Text(if (refreshingModels) "Refreshing…" else "Refresh")
+                    }
+                    TextButton(onClick = {
+                        val defaults = conversationViewModel.resetGeminiModelOrder()
+                        modelOrderInput = defaults.joinToString("\n")
+                    }) { Text("Defaults") }
+                }
+                if (modelMessage.isNotBlank()) Text(modelMessage, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                if (keyNotice.isNotBlank() && !keyNotice.startsWith("Gemini key")) Text(keyNotice, color = MaterialTheme.colorScheme.error, fontSize = 10.sp)
+            }
+        }
+
+        SettingsCard(energy, phase) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                SectionHeading(Icons.Default.Security, "Phone control permissions", "Each capability has its own switch. Android runtime permissions and service approval remain separate.")
+                JarvisCapability.values().forEach { capability ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) {
+                            Text(capability.label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            Text(capability.description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                        }
+                        Switch(
+                            checked = enabledCapabilities[capability] == true,
+                            onCheckedChange = { enabled ->
+                                CapabilitySettings.setEnabled(context, capability, enabled)
+                                enabledCapabilities = enabledCapabilities + (capability to enabled)
+                            }
+                        )
+                    }
+                }
+                Text(
+                    "Accessibility service · ${if (accessibilityEnabled) "enabled" else "not enabled"}${if (JarvisAccessibilityService.isRunning()) " · running" else ""}",
+                    color = if (accessibilityEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedButton(onClick = {
+                    accessibilityLauncher.launch(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }, modifier = Modifier.fillMaxWidth()) { Text("Open Accessibility settings") }
+                Text("Notification access · ${if (NotificationStore.hasAccess(context)) "enabled" else "not enabled"} · ${if (NotificationStore.isConnected()) "connected" else "not connected"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                OutlinedButton(onClick = { NotificationStore.openSettings(context) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Open Notification access settings")
+                }
+                Text(
+                    "Overlay permission · ${if (overlayGranted) "granted" else "not granted"} · Floating bubble · ${if (bubbleRunning) "on" else "off"}",
+                    color = if (overlayGranted && bubbleRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (!overlayGranted) {
+                    OutlinedButton(onClick = {
+                        overlayLauncher.launch(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                        )
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Grant overlay permission") }
+                }
+                Button(
+                    onClick = {
+                        bubbleNotice = ""
+                        runCatching {
+                            if (bubbleRunning) JarvisBodyService.stopBody(context)
+                            else JarvisBodyService.startBody(context)
+                        }.onSuccess {
+                            bubbleRunning = !bubbleRunning
+                        }.onFailure {
+                            bubbleNotice = "The floating Jarvis body could not be changed: ${it.message ?: "Android refused the service request."}"
+                        }
+                    },
+                    enabled = overlayGranted,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (bubbleRunning) "Turn floating ball off" else "Start floating Jarvis ball") }
+                Text("The foreground body is optional and user-started. It hosts the ball, microphone, and conversation; phone screen access is a separate optional AccessibilityService.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                if (bubbleNotice.isNotBlank()) Text(bubbleNotice, color = MaterialTheme.colorScheme.error, fontSize = 10.sp)
+            }
+        }
+        SettingsCard(energy, phase) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                SectionHeading(Icons.Default.Security, "Health", "Live feature state and measurements captured on this device.")
+                Text("Microphone · ${permissionState(context, Manifest.permission.RECORD_AUDIO)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Accessibility · ${if (accessibilityEnabled) "enabled" else "disabled"} · ${if (JarvisAccessibilityService.isRunning()) "running" else "not running"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Overlay · ${if (overlayGranted) "granted" else "not granted"} · Floating body · ${if (bubbleRunning) "on" else "off"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Contacts · ${permissionState(context, Manifest.permission.READ_CONTACTS)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Calendar · ${permissionState(context, Manifest.permission.READ_CALENDAR)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Notification access · ${if (NotificationStore.hasAccess(context)) "enabled" else "disabled"} · ${if (NotificationStore.isConnected()) "connected" else "not connected"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Gemini self-test · $connectionStatus${pingMs?.let { " · measured ${it}ms" }.orEmpty()}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("Live session · ${liveStatus.name}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                val lastError = liveNotice ?: activityRecords.firstOrNull { it.status == HomeActivityStatus.FAILED }?.errorReason
+                Text("Last Live error/event · ${lastError ?: "None recorded"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                val lastDecision = actionDecisions.firstOrNull()
+                Text("Last action decision · ${lastDecision?.let { "${it.decision} · ${it.actionLabel}" } ?: "None recorded"}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                val lastTts = activityRecords.firstOrNull { it.kind == "TTS" }
+                Text(
+                    "Last TTS call · ${lastTts?.let { "${it.step} · ${java.text.DateFormat.getTimeInstance().format(java.util.Date(it.updatedAt))}" } ?: "None recorded"}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp
+                )
+                Text("Measured provider-route duration · whole reply attempt, including tool calls", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                latencySnapshot.forEach { metric ->
+                    val average = metric.averageMs?.let { "avg ${it}ms from ${metric.sampleCount} route attempt(s)" } ?: "No route timings yet"
+                    val last = metric.lastMs?.let { " · last ${it}ms · ${if (metric.lastSucceeded == true) "success" else "failed"}" }.orEmpty()
+                    Text("${metric.provider.displayName} · $average$last", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+private fun permissionState(context: android.content.Context, permission: String): String =
+    if (ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) "granted" else "not granted"
+
+@Composable
+private fun SettingsCard(energy: Float, phase: Float, content: @Composable () -> Unit) {
+    EnergyCard(
+        modifier = Modifier.fillMaxWidth(),
+        energy = energy,
+        phase = phase,
+        content = content
+    )
+}
+
+@Composable
+private fun SectionHeading(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, lineHeight = 15.sp)
         }
     }
 }

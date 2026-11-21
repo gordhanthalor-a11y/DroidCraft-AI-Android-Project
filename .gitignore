@@ -14,13 +14,12 @@
 .cxx
 local.properties
 
-# Python venv
-server/.venv/
+# Python tooling caches
 __pycache__/
 *.pyc
 
-# Generated local Studio service state
-/server/*.db
-/server/*.db-*
-/server/jobs/
-/server/clips/
+# Local Android signing material must not be committed
+keystore/
+*.keystore
+*.jks
+*.p12

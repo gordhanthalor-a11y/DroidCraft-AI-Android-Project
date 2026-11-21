@@ -1,17 +1,26 @@
 package com.droidcraft.app.jarvis
 
+import android.Manifest
 import android.content.Context
+import com.droidcraft.app.data.CapabilitySettings
+import com.droidcraft.app.data.JarvisCapability
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import com.droidcraft.app.jarvis.a11y.JarvisAccessibilityService
-import com.droidcraft.app.jarvis.apps.AppAutomation
+import com.droidcraft.app.jarvis.a11y.LabelTapResult
+import com.droidcraft.app.jarvis.a11y.ScreenCaptureCoordinator
 import com.droidcraft.app.jarvis.contacts.ContactResolver
 import com.droidcraft.app.jarvis.memory.MemoryManager
+import com.droidcraft.app.jarvis.notifications.NotificationStore
+import com.droidcraft.app.jarvis.permissions.RuntimePermissionGate
+import com.droidcraft.app.jarvis.reminders.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -21,6 +30,10 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -43,6 +56,31 @@ class JarvisDevice(private val context: Context) {
 
     /** Koi bhi JarvisIntent chalao; natija Hinglish message mein milta hai. */
     suspend fun execute(intent: JarvisIntent): JarvisOutcome = withContext(Dispatchers.Main) {
+        val capability = when (intent.type) {
+            JarvisIntentType.FLASHLIGHT,
+            JarvisIntentType.OPEN_APP,
+            JarvisIntentType.WEB_SEARCH,
+            JarvisIntentType.OPEN_URL,
+            JarvisIntentType.BATTERY_EXEMPTION,
+            JarvisIntentType.SCREEN_DUMP,
+            JarvisIntentType.SCREENSHOT,
+            JarvisIntentType.TAP,
+            JarvisIntentType.SWIPE,
+            JarvisIntentType.SCROLL,
+            JarvisIntentType.NAVIGATE,
+            JarvisIntentType.TYPE_TEXT -> JarvisCapability.PHONE_CONTROL
+            JarvisIntentType.CALL,
+            JarvisIntentType.CONTACT_LOOKUP -> JarvisCapability.CONTACTS
+            JarvisIntentType.NOTIFICATIONS_READ -> JarvisCapability.NOTIFICATIONS
+            JarvisIntentType.CALENDAR_READ -> JarvisCapability.CALENDAR
+            JarvisIntentType.REMINDER_ADD,
+            JarvisIntentType.ALARM,
+            JarvisIntentType.TIMER -> JarvisCapability.REMINDERS
+            else -> null
+        }
+        if (capability != null && !CapabilitySettings.isEnabled(context, capability)) {
+            return@withContext JarvisOutcome("${capability.label} is turned off in Settings. No phone action was taken.", false)
+        }
         when (intent.type) {
             JarvisIntentType.TIME -> JarvisOutcome(timeText())
             JarvisIntentType.DATE -> JarvisOutcome(dateText())
@@ -56,11 +94,15 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.WEB_SEARCH -> openIntent(webSearchIntent(intent.args["query"].orEmpty()), "Web search khol raha hoon.")
             JarvisIntentType.OPEN_URL -> openIntent(viewIntent(intent.args["url"].orEmpty()), "Link khol raha hoon.")
             JarvisIntentType.CALL -> dial(intent.args["number"].orEmpty(), intent.args["name"].orEmpty())
-            JarvisIntentType.SMS -> sms(
-                intent.args["number"].orEmpty(),
-                intent.args["name"].orEmpty(),
-                intent.args["body"].orEmpty()
+            JarvisIntentType.SMS -> JarvisOutcome(
+                "SMS read/send is deferred while core phone controls are being verified. No message was prepared or sent.",
+                false
             )
+            JarvisIntentType.CONTACT_LOOKUP -> lookupContact(intent.args["name"].orEmpty())
+            JarvisIntentType.CALENDAR_READ -> readCalendar(intent.args["days"]?.toIntOrNull() ?: 7)
+            JarvisIntentType.NOTIFICATIONS_READ -> readNotifications(intent.args["limit"]?.toIntOrNull() ?: 20)
+            JarvisIntentType.REMINDER_ADD -> addReminder(intent.args)
+            JarvisIntentType.BATTERY_EXEMPTION -> requestBatteryExemption()
             JarvisIntentType.ALARM -> setAlarm(
                 intent.args["hour"]?.toIntOrNull() ?: 7,
                 intent.args["minute"]?.toIntOrNull() ?: 0
@@ -69,35 +111,21 @@ class JarvisDevice(private val context: Context) {
             JarvisIntentType.NOTE_ADD -> addNote(intent.args["text"].orEmpty())
             JarvisIntentType.NOTE_LIST -> listNotes()
             JarvisIntentType.SCREEN_DUMP -> screenDump(intent.args["query"].orEmpty())
-            JarvisIntentType.TAP -> tapOn(intent.args["target"].orEmpty())
-            JarvisIntentType.AUTOMATE -> JarvisOutcome(
-                AppAutomation.run(
-                    context,
-                    intent.args["target"].orEmpty(),
-                    intent.args["query"].orEmpty()
-                )
+            JarvisIntentType.SCREENSHOT -> captureScreenshot()
+            JarvisIntentType.TAP -> tapOn(
+                intent.args["target"].orEmpty(),
+                confirmedByUser = intent.args["confirmed"] == "true",
+                expectedPackageName = intent.args["expected_package"]
             )
-            JarvisIntentType.SOCIAL_DASHBOARD -> JarvisOutcome(
-                "Social Hub kholo — bottom bar का 'Social' tab. Wahan scheduled/published/failed posts दिखेंगे."
-            )
-            JarvisIntentType.STUDIO_VOICE -> JarvisOutcome(
-                "Voice Studio खोलो — bottom bar का 'Studio' tab, 'Awaaz Banao'। " +
-                    "Server URL और provider keys Studio के Settings में डालो."
-            )
-            JarvisIntentType.STUDIO_QC -> JarvisOutcome(
-                "Upload QC खोलो — Studio tab → 'Upload QC'। वीडियो चुनो, सारे checks खुद दिखेंगे " +
-                    "(resolution, SAR/DAR, audio, loudness)।"
-            )
-            JarvisIntentType.POST_SCHEDULE -> JarvisOutcome(
-                "Social Hub → Schedule icon दबाओ, videos चुनो, date/time सेट करो. " +
-                    "AI captions अपने आप बनेंगी, फिर exact time पर publish हो जाएँगी."
-            )
+            JarvisIntentType.SWIPE -> swipe(intent.args["direction"].orEmpty())
+            JarvisIntentType.SCROLL -> scroll(intent.args["direction"].orEmpty())
+            JarvisIntentType.NAVIGATE -> navigate(intent.args["action"].orEmpty())
+            JarvisIntentType.TYPE_TEXT -> typeIntoFocusedField(intent.args["text"].orEmpty())
             JarvisIntentType.MEMORY_ADD -> remember(intent.args["text"].orEmpty())
             JarvisIntentType.MEMORY_LIST -> recall(intent.args["query"].orEmpty())
             JarvisIntentType.WEATHER -> withContext(Dispatchers.IO) { weather(intent.args["city"].orEmpty()) }
             JarvisIntentType.MEMORY -> JarvisOutcome("Theek hai, ab main aapka naam yaad rakh lunga.")
-            JarvisIntentType.CREATOR_HELP, JarvisIntentType.UNKNOWN ->
-                JarvisOutcome("Ye kaam main abhi nahi kar sakta.")
+            JarvisIntentType.UNKNOWN -> JarvisOutcome("Ye kaam main abhi nahi kar sakta.")
         }
     }
 
@@ -152,9 +180,8 @@ class JarvisDevice(private val context: Context) {
     }
 
     private fun identity(): String =
-        "Main J.A.R.V.I.S. hoon — Just A Rather Very Intelligent System. Aapka personal assistant: " +
-            "apps kholna, call/SMS, alarm, timer, mausam, notes, flashlight, battery — sab ke liye " +
-            "mujhe batariye. Saath hi aapke YouTube creator kaam mein bhi madad karta hoon."
+        "Main J.A.R.V.I.S. hoon — Just A Rather Very Intelligent System. Main general sawaalon aur " +
+            "safe phone controls mein madad kar sakta hoon: screen padhna, visible controls, scroll, Back/Home aur focused field mein text."
 
     private fun joke(): String {
         val jokes = listOf(
@@ -173,29 +200,21 @@ class JarvisDevice(private val context: Context) {
     // ---------------- apps / intents ----------------
 
     private fun openApp(query: String): JarvisOutcome {
-        val q = query.trim()
-        if (q.isBlank()) return JarvisOutcome("Kaunsa app khoolu? Naam bataiye.", false)
-        val apps = launcherApps()
-        val best = apps.map { (label, launch) ->
-            val l = normalizeLabel(label)
-            val score = when {
-                l == q -> 100
-                l.contains(q) || q.contains(l) -> 60
-                else -> {
-                    val qTokens = q.split(" ").filter { it.length > 1 }
-                    val lTokens = l.split(" ")
-                    qTokens.count { token -> lTokens.any { it.startsWith(token) || token.startsWith(it) } } * 20
-                }
-            }
-            Triple(label, launch, score)
-        }.filter { it.third >= 20 }.maxByOrNull { it.third }
-
-        if (best != null) {
-            return openIntent(best.second, "${best.first} khol raha hoon.")
+        val rawQuery = query.trim()
+        if (rawQuery.isBlank()) return JarvisOutcome("Which app should I open? Give me its name.", false)
+        JarvisAccessibilityService.instance?.launchAppByName(rawQuery)?.let { label ->
+            return JarvisOutcome("Opening $label.")
         }
-        // Device par nahi mila — Play Store par dhoondo
-        val store = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=${urlEncode(q)}&c=apps"))
-        return openIntent(store, "'$q' is phone mein nahi mila — Play Store khol raha hoon.")
+        val needle = normalizeLabel(rawQuery)
+        val apps = launcherApps()
+        val exact = apps.filter { normalizeLabel(it.first) == needle }
+        val candidates = if (exact.isNotEmpty()) exact else apps.filter { normalizeLabel(it.first).startsWith(needle) }
+        val distinct = candidates.distinctBy { it.second.component?.packageName ?: it.first }
+        return when (distinct.size) {
+            1 -> openIntent(distinct.single().second, "Opening ${distinct.single().first}.")
+            0 -> JarvisOutcome("No installed app has the unambiguous launcher name '$rawQuery'. No other app was opened.", false)
+            else -> JarvisOutcome("More than one app matches '$rawQuery'. Name the exact app; nothing was opened.", false)
+        }
     }
 
     private fun launcherApps(): List<Pair<String, Intent>> {
@@ -213,11 +232,10 @@ class JarvisDevice(private val context: Context) {
     private fun normalizeLabel(label: String): String {
         val alias = mapOf(
             "gpay" to "google pay", "googlepay" to "google pay",
-            "chat" to "whatsapp", "wp" to "whatsapp",
             "insta" to "instagram", "ig" to "instagram",
             "maps" to "google maps", "gmail" to "gmail",
             "chrome" to "chrome", "browser" to "chrome",
-            "yt" to "youtube", "camera" to "camera",
+            "camera" to "camera",
             "gallery" to "photos", "photos" to "photos",
             "clock" to "clock", "alarm" to "clock",
             "calculator" to "calculator", "calc" to "calculator",
@@ -236,40 +254,38 @@ class JarvisDevice(private val context: Context) {
         return Intent(Intent.ACTION_VIEW, Uri.parse(url))
     }
 
-    private fun dial(number: String, name: String): JarvisOutcome {
-        val n = resolveNumber(number, name)
-            ?: return JarvisOutcome(contactMissMessage(name, "Call"), false)
+    private suspend fun dial(number: String, name: String): JarvisOutcome {
+        val directNumber = normalizePhoneNumber(number)
+        val resolved = if (directNumber != null) directNumber else {
+            if (name.isBlank()) return JarvisOutcome("Tell me a phone number or a contact name to open the dialer.", false)
+            if (!RuntimePermissionGate.request(context, Manifest.permission.READ_CONTACTS)) {
+                return JarvisOutcome("Contacts permission was denied. No contact was read and no call was placed; allow it and ask again if you want to continue.", false)
+            }
+            withContext(Dispatchers.IO) { contacts.resolve(name)?.number }
+                ?: return JarvisOutcome("No single unambiguous contact match for '$name'; no call was placed.", false)
+        }
         return openIntent(
-            Intent(Intent.ACTION_DIAL, Uri.parse("tel:$n")),
-            "Dial pad khol raha hoon: ${contactLabel(name, n)}."
+            Intent(Intent.ACTION_DIAL, Uri.parse("tel:$resolved")),
+            "The dialer is open for ${name.ifBlank { resolved }}. Review the number and tap Call yourself; Jarvis does not place calls."
         )
     }
 
-    private fun sms(number: String, name: String, body: String): JarvisOutcome {
-        val n = resolveNumber(number, name)
-            ?: return JarvisOutcome(contactMissMessage(name, "SMS"), false)
-        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$n")).apply {
-            putExtra("sms_body", body)
-        }
-        return openIntent(intent, "SMS app khol raha hoon: ${contactLabel(name, n)}.")
-    }
-
-    /** Number seedha ho toh use karo, warna naam se contact dhundho. */
-    private fun resolveNumber(number: String, name: String): String? {
+    private fun normalizePhoneNumber(value: String): String? {
+        val number = value.trim()
         val digits = number.filter { it.isDigit() || it == '+' }
-        if (digits.length >= 6) return digits
-        if (name.isBlank()) return null
-        return contacts.resolve(name)?.number
+        return digits.takeIf { it.count(Char::isDigit) >= 6 }
     }
 
-    private fun contactMissMessage(name: String, action: String): String = when {
-        name.isBlank() -> "$action ke liye sahi number bataiye (10 digit)."
-        !contacts.hasPermission() -> "'$name' dhundne ke liye contacts permission chahiye — allow karke dobara boliye."
-        else -> "'$name' naam ka contact nahi mila."
+    private suspend fun lookupContact(name: String): JarvisOutcome {
+        val query = name.trim()
+        if (query.isBlank()) return JarvisOutcome("Name one contact to look up.", false)
+        if (!RuntimePermissionGate.request(context, Manifest.permission.READ_CONTACTS)) {
+            return JarvisOutcome("Contacts permission was denied. No contact data was read.", false)
+        }
+        val contact = withContext(Dispatchers.IO) { contacts.resolve(query) }
+            ?: return JarvisOutcome("No single unambiguous contact matched '$query'.", false)
+        return JarvisOutcome("Contact match: ${contact.name}, ${contact.number}.")
     }
-
-    private fun contactLabel(name: String, number: String): String =
-        if (name.isNotBlank()) name else number
 
     private fun setAlarm(hour: Int, minute: Int): JarvisOutcome {
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
@@ -295,19 +311,23 @@ class JarvisDevice(private val context: Context) {
         return openIntent(intent, "$label ka timer set kar diya.")
     }
 
-    private fun toggleFlashlight(on: Boolean): JarvisOutcome {
+    private suspend fun toggleFlashlight(on: Boolean): JarvisOutcome {
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED &&
+            !RuntimePermissionGate.request(context, Manifest.permission.CAMERA)
+        ) {
+            return JarvisOutcome("Camera permission was denied. The flashlight was not changed; Jarvis does not take photos or record video.", false)
+        }
         return try {
             val cm = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
             val cameraId = cm.cameraIdList.firstOrNull { id ->
                 runCatching {
                     cm.getCameraCharacteristics(id).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
                 }.getOrDefault(false)
-            } ?: cm.cameraIdList.firstOrNull()
-            if (cameraId == null) return JarvisOutcome("Is phone mein flashlight nahi hai.", false)
+            } ?: return JarvisOutcome("This phone does not expose a flashlight control.", false)
             cm.setTorchMode(cameraId, on)
             JarvisOutcome(if (on) "Flashlight on kar di." else "Flashlight off kar di.")
-        } catch (e: Exception) {
-            JarvisOutcome("Flashlight control nahi kar paya: ${e.message}", false)
+        } catch (error: Exception) {
+            JarvisOutcome("Flashlight control nahi kar paya: ${error.message ?: "Android refused it."}", false)
         }
     }
 
@@ -346,35 +366,182 @@ class JarvisDevice(private val context: Context) {
 
     // ---------------- screen automation ----------------
 
+    fun currentScreenElements(): String = JarvisAccessibilityService.instance?.dumpScreen().orEmpty()
+
+    fun currentActivePackageName(): String? = JarvisAccessibilityService.instance?.activeWindowPackageName()
+
+    fun currentActiveAppLabel(): String? = JarvisAccessibilityService.instance?.activeWindowAppLabel()
+
     private fun screenDump(query: String): JarvisOutcome {
-        val service = JarvisAccessibilityService.instance
-            ?: return JarvisOutcome(
-                "Screen automation band hai. Settings → Accessibility → \"Jarvis Automation\" ON kariye, phir dobara boliye.",
-                false
-            )
+        val service = JarvisAccessibilityService.instance ?: return accessibilityUnavailable()
         val text = service.dumpScreen()
-        if (text.isBlank()) return JarvisOutcome("Screen par kuch padha nahi ja raha.", false)
-        val answer = if (query.isBlank()) {
-            text.take(1500).ifBlank { "Screen par kuch padha nahi ja raha." }
-        } else {
-            text.lineSequence().filter { it.contains(query, ignoreCase = true) }.joinToString("\n")
-                .ifBlank { "'$query' screen par nahi mila." }
+        if (text.isBlank() || text.startsWith("No labelled accessibility elements")) {
+            return JarvisOutcome("The active screen did not expose labelled accessibility elements. No screen action was attempted.", false)
         }
-        return JarvisOutcome("Screen par dikha hai:\n$answer")
+        val answer = if (query.isBlank()) text.take(1_500) else {
+            text.lineSequence().filter { it.contains(query, ignoreCase = true) }.joinToString("\n")
+                .ifBlank { "'$query' was not found in the labelled screen elements." }
+        }
+        return JarvisOutcome("Visible labelled screen elements:\n$answer")
     }
 
-    private fun tapOn(target: String): JarvisOutcome {
-        val service = JarvisAccessibilityService.instance
-            ?: return JarvisOutcome(
-                "Screen automation band hai. Settings → Accessibility → \"Jarvis Automation\" ON kariye, phir dobara boliye.",
-                false
-            )
-        return if (service.tapText(target)) {
-            JarvisOutcome("'$target' par click kar diya.")
-        } else {
-            JarvisOutcome("'$target' screen par nahi mila.", false)
+    private suspend fun captureScreenshot(): JarvisOutcome = try {
+        val png = ScreenCaptureCoordinator.capture()
+        JarvisOutcome(
+            "A read-only screenshot was captured for this user-requested turn. The image is shared with Gemini only to answer this request.",
+            imagePng = png
+        )
+    } catch (error: Exception) {
+        JarvisOutcome("Screenshot not taken: ${error.message ?: "screen capture was not approved or unavailable."}", false)
+    }
+
+    private fun tapOn(target: String, confirmedByUser: Boolean, expectedPackageName: String?): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance ?: return accessibilityUnavailable()
+        when (val decision = com.droidcraft.app.jarvis.a11y.ActionSafety.assessTap(
+            target,
+            service.activeWindowPackageName(),
+            service.activeWindowAppLabel()
+        )) {
+            is com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.Blocked -> return JarvisOutcome(decision.reason, false)
+            is com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.RequiresConfirmation ->
+                if (!confirmedByUser) return JarvisOutcome(decision.reason, false)
+            com.droidcraft.app.jarvis.a11y.ActionSafety.TapDecision.Allowed -> Unit
+        }
+        return when (val result = service.tapText(target, confirmedByUser, expectedPackageName)) {
+            LabelTapResult.Tapped -> JarvisOutcome("Tapped the unique visible control labelled '$target'.")
+            is LabelTapResult.Refused -> JarvisOutcome(result.reason, false)
+            is LabelTapResult.NotFound -> JarvisOutcome(result.reason, false)
         }
     }
+
+    private fun swipe(direction: String): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance ?: return accessibilityUnavailable()
+        if (direction.lowercase(Locale.ROOT) !in setOf("up", "down", "left", "right")) {
+            return JarvisOutcome("Swipe direction must be up, down, left, or right.", false)
+        }
+        return if (service.swipe(direction)) JarvisOutcome("Swiped $direction inside the visible scrollable area.")
+        else JarvisOutcome("No visible scrollable area accepted that swipe; no screen-wide coordinate guess was used.", false)
+    }
+
+    private fun scroll(direction: String): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance ?: return accessibilityUnavailable()
+        if (direction.lowercase(Locale.ROOT) !in setOf("up", "down")) return JarvisOutcome("Scroll direction must be up or down.", false)
+        return if (service.scroll(direction)) JarvisOutcome("Scrolled the visible scrollable area ${direction}.")
+        else JarvisOutcome("No visible scrollable element accepted scrolling; no screen-wide coordinate guess was used.", false)
+    }
+
+    private fun navigate(action: String): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance ?: return accessibilityUnavailable()
+        return if (service.navigate(action)) {
+            JarvisOutcome(if (action.equals("HOME", true)) "Moved to the Home screen." else "Went Back.")
+        } else JarvisOutcome("Android did not accept the ${action.uppercase(Locale.ROOT)} navigation action.", false)
+    }
+
+    private fun typeIntoFocusedField(text: String): JarvisOutcome {
+        val service = JarvisAccessibilityService.instance ?: return accessibilityUnavailable()
+        if (text.isBlank()) return JarvisOutcome("No text was provided.", false)
+        if (text.length > 2_000) return JarvisOutcome("Text is too long to type in one action; nothing was entered.", false)
+        return if (service.typeIntoFocusedField(text)) JarvisOutcome("Entered the user-provided text in the field that already had focus.")
+        else JarvisOutcome("No focused, enabled editable field was available; nothing was typed.", false)
+    }
+
+    private suspend fun readCalendar(daysAhead: Int): JarvisOutcome {
+        if (!RuntimePermissionGate.request(context, Manifest.permission.READ_CALENDAR)) {
+            return JarvisOutcome("Calendar permission was denied. No events were read; allow it only if you want this request handled.", false)
+        }
+        val days = daysAhead.coerceIn(1, 30)
+        return withContext(Dispatchers.IO) {
+            try {
+                val start = System.currentTimeMillis()
+                val end = start + days * 86_400_000L
+                val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+                    .appendPath(start.toString())
+                    .appendPath(end.toString())
+                    .build()
+                val events = mutableListOf<String>()
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(
+                        CalendarContract.Instances.TITLE,
+                        CalendarContract.Instances.BEGIN,
+                        CalendarContract.Instances.END,
+                        CalendarContract.Instances.EVENT_LOCATION
+                    ),
+                    null, null,
+                    CalendarContract.Instances.BEGIN + " ASC"
+                )?.use { cursor ->
+                    val titleIndex = cursor.getColumnIndex(CalendarContract.Instances.TITLE)
+                    val beginIndex = cursor.getColumnIndex(CalendarContract.Instances.BEGIN)
+                    val endIndex = cursor.getColumnIndex(CalendarContract.Instances.END)
+                    val locationIndex = cursor.getColumnIndex(CalendarContract.Instances.EVENT_LOCATION)
+                    while (cursor.moveToNext() && events.size < 30) {
+                        val title = if (titleIndex >= 0) cursor.getString(titleIndex).orEmpty() else "Untitled event"
+                        val begin = if (beginIndex >= 0) cursor.getLong(beginIndex) else 0L
+                        val finish = if (endIndex >= 0) cursor.getLong(endIndex) else begin
+                        val location = if (locationIndex >= 0) cursor.getString(locationIndex).orEmpty() else ""
+                        val date = SimpleDateFormat("EEE, d MMM, h:mm a", Locale.getDefault()).format(Date(begin))
+                        val until = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(finish))
+                        events += "${date}–${until}: ${title.take(180)}" + location.takeIf { it.isNotBlank() }?.let { " · ${it.take(120)}" }.orEmpty()
+                    }
+                }
+                if (events.isEmpty()) JarvisOutcome("No calendar events were found in the next $days days.")
+                else JarvisOutcome("Calendar events for the next $days days:\n${events.joinToString("\n")}")
+            } catch (_: SecurityException) {
+                JarvisOutcome("Calendar permission is not available. No events were read; grant access in Android Settings and retry.", false)
+            } catch (error: Exception) {
+                JarvisOutcome("Calendar could not be read: ${error.message ?: "Android returned an error."}", false)
+            }
+        }
+    }
+
+    private fun readNotifications(limit: Int): JarvisOutcome {
+        if (!NotificationStore.hasAccess(context)) {
+            val opened = NotificationStore.openSettings(context)
+            return JarvisOutcome(
+                if (opened) "Notification access is not enabled. Android opened its notification-access settings; no notifications were read. Enable access and ask again."
+                else "Notification access is not enabled. Open Android Settings → Special app access → Notification access; no notifications were read.",
+                false
+            )
+        }
+        return JarvisOutcome(NotificationStore.format(NotificationStore.latest(context, limit)))
+    }
+
+    private suspend fun addReminder(args: Map<String, String>): JarvisOutcome {
+        val title = args["title"].orEmpty().trim()
+        if (title.isBlank()) return JarvisOutcome("What should I remind you about? Nothing was scheduled.", false)
+        val now = System.currentTimeMillis()
+        val afterSeconds = args["after_seconds"]?.toLongOrNull()
+            ?: args["after_minutes"]?.toLongOrNull()?.let { it * 60L }
+        val atMillis = when {
+            afterSeconds != null && afterSeconds in 10L..31_536_000L -> now + afterSeconds * 1_000L
+            args["timestamp_millis"]?.toLongOrNull() != null -> args["timestamp_millis"]!!.toLong()
+            !args["when_iso"].isNullOrBlank() -> parseReminderTime(args["when_iso"].orEmpty())
+            else -> null
+        } ?: return JarvisOutcome("I need a clear future time for that reminder. Nothing was scheduled.", false)
+        return ReminderScheduler.schedule(context, title, atMillis).fold(
+            onSuccess = { JarvisOutcome(it) },
+            onFailure = { JarvisOutcome("Reminder was not scheduled: ${it.message ?: "Android could not arm the alarm."}", false) }
+        )
+    }
+
+    private fun parseReminderTime(raw: String): Long? {
+        val value = raw.trim()
+        if (value.isBlank()) return null
+        return runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
+            ?: runCatching { OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(value).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() }.getOrNull()
+    }
+
+    private fun requestBatteryExemption(): JarvisOutcome =
+        ReminderScheduler.requestBatteryOptimizationExemption(context).fold(
+            onSuccess = { JarvisOutcome(it) },
+            onFailure = { JarvisOutcome("Battery-optimisation settings could not be opened: ${it.message ?: "Android refused it."}", false) }
+        )
+
+    private fun accessibilityUnavailable() = JarvisOutcome(
+        "Phone screen control ke liye Settings → Accessibility mein Jarvis Automation ON kijiye.",
+        false
+    )
 
     private suspend fun recall(query: String): JarvisOutcome {
         val facts = memory.search(query)

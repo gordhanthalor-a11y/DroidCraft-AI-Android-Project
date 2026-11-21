@@ -26,7 +26,7 @@ class GeminiTtsClient(
             require(apiKey.isNotBlank()) { "Add a Gemini API key in Settings before using Gemini TTS." }
             require(text.isNotBlank()) { "There is no reply text to speak." }
 
-                        val style = styleInstruction
+            val style = styleInstruction
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?.take(MAX_STYLE_LENGTH)

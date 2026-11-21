@@ -2,7 +2,7 @@ package com.droidcraft.app.data
 
 import android.content.Context
 
-/** One encrypted Gemini key shared by Jarvis, chat, Script Writer, and Social tools. */
+/** One encrypted Gemini API key shared by Jarvis replies, Live Talk, and Gemini TTS. */
 object GeminiApiKeyStore {
     private const val SECURE_KEY = "gemini_api_key"
     private const val PREFERENCES_NAME = "droidcraft"

@@ -27,20 +27,24 @@ class ContactResolver(private val context: Context) {
         val all = loadContacts()
         if (all.isEmpty()) return null
 
-        // 1. Exact
-        all.firstOrNull { it.name.lowercase(Locale.ROOT) == q }?.let { return it }
+        // 1. Exact: duplicate names with different numbers are ambiguous and must be clarified.
+        val exact = all.filter { it.name.lowercase(Locale.ROOT) == q }
+        if (exact.size == 1) return exact.single()
+        if (exact.size > 1) return null
 
-        // 2. Nickname (papa, mummy, bhai...)
+        // 2. Nickname (papa, mummy, bhai...); never silently choose among multiple contacts.
         NICKNAMES[q]?.let { aliases ->
-            all.firstOrNull { c -> aliases.any { c.name.lowercase(Locale.ROOT).contains(it) } }
-                ?.let { return it }
+            val matches = all.filter { c -> aliases.any { c.name.lowercase(Locale.ROOT).contains(it) } }
+            if (matches.size == 1) return matches.single()
+            if (matches.size > 1) return null
         }
 
         // 3. Prefix / token match ("rahul" -> "Rahul Sharma")
         val prefix = all.filter { c ->
             c.name.lowercase(Locale.ROOT).split(" ", ".", "_", "-").any { it.startsWith(q) }
         }
-        if (prefix.size == 1) return prefix.first()
+        if (prefix.size == 1) return prefix.single()
+        if (prefix.size > 1) return null
 
         // 4. Fuzzy
         val scored = all.map { it to similarity(q, it.name.lowercase(Locale.ROOT)) }

@@ -2,6 +2,7 @@ package com.droidcraft.app.jarvis
 
 import android.app.Application
 import android.content.Context
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.lifecycle.AndroidViewModel
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.droidcraft.app.ai.ElevenLabsException
 import com.droidcraft.app.ai.GeminiTtsClient
 import com.droidcraft.app.ai.PcmAudioPlayer
 import com.droidcraft.app.jarvis.character.Emotion
@@ -23,15 +23,14 @@ import com.droidcraft.app.jarvis.voice.SpokenTextCleaner
 import com.droidcraft.app.jarvis.voice.VoiceMode
 import com.droidcraft.app.jarvis.voice.VoiceRouter
 import com.droidcraft.app.jarvis.voice.VoiceSettings
-import com.droidcraft.app.jarvis.voice.VoiceState
 import com.droidcraft.app.activity.HomeActivityTracker
-import com.droidcraft.app.jarvis.wake.WakeWordService
+import com.droidcraft.app.jarvis.a11y.ActionSafety
 import com.droidcraft.app.data.GeminiApiKeyStore
-import com.droidcraft.app.data.GeminiModelSettings
+import com.droidcraft.app.data.ActionDecisionStore
+import com.droidcraft.app.data.AiProviderSettings
+import com.droidcraft.app.data.AiProviderTelemetry
 import com.droidcraft.app.data.local.MemoryEntity
-import com.droidcraft.app.studio.tts.TtsClient
-import com.droidcraft.app.studio.tts.TtsRequestException
-import com.droidcraft.app.studio.tts.Mp3Player
+import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
 
@@ -58,12 +57,23 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     @Volatile private var activePhoneActivityId: String? = null
     private var activeSpeechActivityId: String? = null
     private var speechJob: Job? = null
-    private var voicePlayer: Mp3Player? = null
     private var pcmPlayer: PcmAudioPlayer? = null
     private val speechGeneration = java.util.concurrent.atomic.AtomicLong(0)
 
     private val _messages = MutableStateFlow<List<JarvisMessage>>(emptyList())
     val messages: StateFlow<List<JarvisMessage>> = _messages.asStateFlow()
+
+    private val _assistantDraft = MutableStateFlow("")
+    val assistantDraft: StateFlow<String> = _assistantDraft.asStateFlow()
+
+    private val _needsAttention = MutableStateFlow(false)
+    val needsAttention: StateFlow<Boolean> = _needsAttention.asStateFlow()
+
+    private var workCount = 0
+
+    private val _pendingTapConfirmation = MutableStateFlow<PendingTapConfirmation?>(null)
+    val pendingTapConfirmation: StateFlow<PendingTapConfirmation?> = _pendingTapConfirmation.asStateFlow()
+    private val seenLiveMessageIds = LinkedHashSet<String>()
 
     private val _isThinking = MutableStateFlow(false)
     val isThinking: StateFlow<Boolean> = _isThinking.asStateFlow()
@@ -89,9 +99,6 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val _ttsReady = MutableStateFlow(false)
     val ttsReady: StateFlow<Boolean> = _ttsReady.asStateFlow()
 
-    private val _handsFree = MutableStateFlow(prefs.getBoolean("jarvis_hands_free", false))
-    val handsFree: StateFlow<Boolean> = _handsFree.asStateFlow()
-
     private val _memories = MutableStateFlow<List<MemoryEntity>>(emptyList())
     val memories: StateFlow<List<MemoryEntity>> = _memories.asStateFlow()
 
@@ -112,6 +119,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private var idCounter = 0L
 
     init {
+        ActionDecisionStore.initialize(application)
         _notes.value = device.loadNotes()
         refreshMemories()
         _messages.value = listOf(
@@ -130,20 +138,19 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         appendBot("Voice ke liye microphone permission zaroori hai. Settings se allow kar dijiye.")
     }
 
-    /** "Hey Jarvis" background wake-word listener on/off. */
-    fun setHandsFree(enabled: Boolean) {
-        prefs.edit().putBoolean("jarvis_hands_free", enabled).apply()
-        _handsFree.value = enabled
-        val app = getApplication<Application>()
-        if (enabled) WakeWordService.start(app) else WakeWordService.stop(app)
-    }
-
     // ------------------------------------------------------------------ chat
 
     fun handleUserText(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        if (_isThinking.value) {
+            appendBot("I am still finishing the previous request. No new action was started; please try again in a moment.")
+            return
+        }
         stopSpeak()
+        _pendingTapConfirmation.value = null
+        _needsAttention.value = false
+        _assistantDraft.value = ""
         _messages.value = _messages.value + JarvisMessage(nextId(), trimmed, isUser = true)
 
         val intent = JarvisCommandParser.parse(trimmed)
@@ -152,6 +159,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         if (type == JarvisIntentType.MEMORY) {
             val name = intent?.args?.get("name")?.trim().orEmpty()
             if (name.isNotEmpty()) {
+                persistDurableFact(trimmed)
                 prefs.edit().putString("jarvis_user_name", name).apply()
                 _userName.value = name
                 appendBot("Bahut achha $name, ab main aapko yaad rakh lunga.")
@@ -159,70 +167,337 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        if (intent != null && type != JarvisIntentType.UNKNOWN && type != JarvisIntentType.CREATOR_HELP) {
-            viewModelScope.launch {
+        if (intent != null && gateTapAction(intent)) return
+        if (intent != null && type != JarvisIntentType.UNKNOWN) {
+            executeDeviceIntent(intent)
+        } else {
+            // Screen data is fetched only through a user-authorized tool call, never by a vague
+            // reference such as "this" or "here" in an ordinary chat message.
+            askBrain()
+        }
+    }
+
+    private fun persistDurableFact(userText: String) {
+        val fact = memory.extractDurableFact(userText) ?: return
+        viewModelScope.launch {
+            runCatching {
+                memory.remember(fact)
+                _memories.value = memory.facts()
+            }.onSuccess {
+                val id = "memory-fact-${System.currentTimeMillis()}"
+                HomeActivityTracker.begin(id, "Memory", fact.key, "Saved on device")
+                HomeActivityTracker.complete(id, "Saved on device", fact.value)
+            }.onFailure { error ->
+                _memoryNotice.value = "Could not save a durable fact: ${error.message ?: error.javaClass.simpleName}"
+            }
+        }
+    }
+
+    private fun gateTapAction(intent: JarvisIntent): Boolean {
+        if (intent.type != JarvisIntentType.TAP) return false
+        val target = intent.args["target"].orEmpty()
+        val packageName = device.currentActivePackageName()
+        when (val decision = ActionSafety.assessTap(target, packageName, device.currentActiveAppLabel())) {
+            is ActionSafety.TapDecision.Blocked -> {
+                _needsAttention.value = true
+                appendBot(decision.reason)
+                return true
+            }
+            is ActionSafety.TapDecision.RequiresConfirmation -> {
+                if (packageName.isNullOrBlank()) {
+                    _needsAttention.value = true
+                    appendBot("I could not verify the active app, so no tap was sent. Enable Jarvis Accessibility and retry on the intended screen.")
+                    return true
+                }
+                _pendingTapConfirmation.value = PendingTapConfirmation(target, decision.reason, packageName)
+                _needsAttention.value = true
+                appendBot("Confirmation is required before I tap '$target'. Review the on-screen dialog; nothing has been tapped.")
+                return true
+            }
+            ActionSafety.TapDecision.Allowed -> return false
+        }
+    }
+
+    /** Safety-checked executor used by Gemini Live's explicitly requested phone tools. */
+    suspend fun executeLiveTool(toolName: String, args: JSONObject, userText: String): JarvisOutcome {
+        val activityId = "live-tool-${System.currentTimeMillis()}-${toolName.hashCode()}"
+        HomeActivityTracker.begin(activityId, "Phone action", toolName.replace('_', ' '), "Checking authorization")
+        val intent = JarvisToolIntents.fromTool(toolName, args)
+        val outcome = when {
+            intent == null -> JarvisOutcome("Unsupported phone action. Nothing was changed.", false)
+            !ActionSafety.wasExplicitlyRequested(userText, intent.type) ->
+                JarvisOutcome("Refused: the current spoken request did not explicitly ask for this action. Nothing was changed.", false)
+            intent.type == JarvisIntentType.TYPE_TEXT &&
+                !ActionSafety.isUserProvidedText(userText, intent.args["text"].orEmpty()) ->
+                JarvisOutcome("Refused: only text literally supplied by you may be entered. Nothing was typed.", false)
+            else -> {
+                HomeActivityTracker.update(activityId, "Running the requested phone action")
+                try {
+                    executeBrainTool(intent)
+                } catch (cancelled: CancellationException) {
+                    HomeActivityTracker.cancel(activityId, "Tool call cancelled by Gemini Live")
+                    throw cancelled
+                } catch (error: Exception) {
+                    JarvisOutcome("Action failed safely: ${error.message ?: error.javaClass.simpleName}", false)
+                }
+            }
+        }
+        if (outcome.success) HomeActivityTracker.complete(activityId, "Completed", outcome.message)
+        else HomeActivityTracker.fail(activityId, outcome.message)
+        return outcome
+    }
+
+    private suspend fun executeBrainTool(intent: JarvisIntent): JarvisOutcome {
+        if (intent.type == JarvisIntentType.TAP) {
+            val (packageName, appLabel) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                device.currentActivePackageName() to device.currentActiveAppLabel()
+            }
+            if (packageName.isNullOrBlank()) {
+                return JarvisOutcome("Accessibility is unavailable or no active app could be verified. No tap was sent.", false)
+            }
+            when (val decision = ActionSafety.assessTap(intent.args["target"].orEmpty(), packageName, appLabel)) {
+                is ActionSafety.TapDecision.Blocked -> return JarvisOutcome(decision.reason, false)
+                is ActionSafety.TapDecision.RequiresConfirmation -> {
+                    _pendingTapConfirmation.value = PendingTapConfirmation(
+                        intent.args["target"].orEmpty(),
+                        decision.reason,
+                        packageName
+                    )
+                    _needsAttention.value = true
+                    return JarvisOutcome("Paused for on-screen confirmation. No tap was sent. ${decision.reason}", false)
+                }
+                ActionSafety.TapDecision.Allowed -> Unit
+            }
+        }
+        return device.execute(intent)
+    }
+
+    fun confirmPendingTap() {
+        val pending = _pendingTapConfirmation.value ?: return
+        recordTapDecision(pending, approved = true)
+        _pendingTapConfirmation.value = null
+        if (device.currentActivePackageName() != pending.expectedPackageName) {
+            _needsAttention.value = true
+            appendBot("The active app changed before confirmation. The tap was cancelled and nothing was changed.")
+            return
+        }
+        _needsAttention.value = false
+        executeDeviceIntent(
+            JarvisIntent(
+                JarvisIntentType.TAP,
+                mapOf(
+                    "target" to pending.target,
+                    "confirmed" to "true",
+                    "expected_package" to pending.expectedPackageName
+                )
+            )
+        )
+    }
+
+    fun dismissPendingTap() {
+        val pending = _pendingTapConfirmation.value ?: return
+        recordTapDecision(pending, approved = false)
+        _pendingTapConfirmation.value = null
+        _needsAttention.value = false
+        appendBot("The tap was cancelled. Nothing was changed.")
+    }
+
+    private fun recordTapDecision(pending: PendingTapConfirmation, approved: Boolean) {
+        ActionDecisionStore.record(
+            getApplication(),
+            actionLabel = pending.target,
+            packageName = pending.expectedPackageName,
+            approved = approved
+        )
+        val id = "tap-decision-${System.currentTimeMillis()}"
+        val label = if (approved) "User approved tap" else "User rejected tap"
+        HomeActivityTracker.begin(
+            id = id,
+            kind = "Action decision",
+            title = "${pending.target} · ${pending.expectedPackageName}",
+            step = label
+        )
+        if (approved) HomeActivityTracker.complete(id, "Approval recorded", "The active-package safety check still applies.")
+        else HomeActivityTracker.cancel(id, "User rejected the requested tap; no tap was sent.")
+    }
+
+    /** Live Talk has its own microphone/audio route; only its text transcript is mirrored here. */
+    fun appendLiveTranscript(id: String, text: String, isUser: Boolean) {
+        if (text.isBlank() || !seenLiveMessageIds.add(id)) return
+        _messages.value = _messages.value + JarvisMessage(nextId(), text.trim(), isUser)
+    }
+
+    private fun executeDeviceIntent(intent: JarvisIntent, replyText: String? = null) {
+        beginWork()
+        viewModelScope.launch {
+            try {
                 val outcome = device.execute(intent)
                 _notes.value = device.loadNotes()
                 if (intent.type == JarvisIntentType.MEMORY_ADD || intent.type == JarvisIntentType.MEMORY_LIST) {
                     _memories.value = memory.facts()
                 }
-                appendBot(outcome.message)
+                if (!outcome.success) _needsAttention.value = true
+                val spoken = if (replyText.isNullOrBlank() || outcome.success) outcome.message
+                    else "$replyText (${outcome.message})"
+                appendBot(spoken)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _needsAttention.value = true
+                appendBot("The phone action did not complete: ${error.message ?: error.javaClass.simpleName}. No success is being claimed.")
+            } finally {
+                endWork()
             }
-        } else {
-            askBrain()
         }
+    }
+
+    private fun beginWork() {
+        workCount += 1
+        _isThinking.value = true
+    }
+
+    private fun endWork() {
+        workCount = (workCount - 1).coerceAtLeast(0)
+        _isThinking.value = workCount > 0
     }
 
     /** Character + memory से जुड़ा user context — Gemini को हर बार ताज़ा। */
-    private fun characterContext(): JarvisCharacter.UserContext {
-        val app = getApplication<Application>()
-        return JarvisCharacter.UserContext(
-            userName = _userName.value.ifBlank { "sahab" },
-            facts = _memories.value.map { it.value },
-            channels = listOf("GT Marwadi Vlogs", "GT Tech Gyaan", "GT6 Ki Duniya Hindi",
-                "Mind Facts Hindi", "Kids Videos Hindi Story", "Lumo Tales", "Khanak Drops"),
-            work = "6+ YouTube channels, clipping business, Hindi dubbing, product reels"
-        )
-    }
+    private fun characterContext(): JarvisCharacter.UserContext = JarvisCharacter.UserContext(
+        userName = _userName.value.ifBlank { "sahab" },
+        facts = _memories.value.map { it.value },
+        work = "Hindi and English conversation, general questions, and safe personal phone controls"
+    )
 
     private fun askBrain() {
-        val key = GeminiApiKeyStore.read(getApplication())
-        _apiKey.value = key
-        if (key.isBlank()) {
+        val app = getApplication<Application>()
+        val providers = AiProviderSettings.configuredProviders(app)
+        val geminiKey = GeminiApiKeyStore.read(app)
+        _apiKey.value = geminiKey
+        if (providers.isEmpty()) {
+            _needsAttention.value = true
             appendBot(
-                "Main device ke kaam (app kholo, alarm, timer, weather, notes, call, SMS, flashlight) " +
-                    "bina key ke bhi kar sakta hoon. Baat-cheet aur creator tasks ke liye Gemini API key " +
-                    "daaliye — aistudio.google.com/apikey se free milti hai."
+                "Local phone controls can work without an AI provider. For conversation, save a Gemini key " +
+                    "or configure another provider in Settings."
             )
             return
         }
+        beginWork()
+        _assistantDraft.value = ""
         viewModelScope.launch {
-            _isThinking.value = true
+            val toolResults = mutableListOf<JarvisOutcome>()
+            var phoneTaskActivityId: String? = null
+            var phoneTaskSteps = 0
             try {
-                val brain = JarvisBrain(
-                    key,
-                    characterContext(),
-                    GeminiModelSettings.read(getApplication())
-                )
-                val reply = brain.reply(_messages.value)
-                if (reply.action != null) {
-                    val outcome = device.execute(reply.action)
-                    _notes.value = device.loadNotes()
-                    val spoken = when {
-                        reply.text.isNotBlank() && outcome.success -> reply.text
-                        reply.text.isNotBlank() -> "${reply.text} (${outcome.message})"
-                        else -> outcome.message
-                    }
-                    appendBot(spoken)
-                } else {
-                    appendBot(reply.text.ifBlank { "(Khaali jawab mila, dobara puchiye.)" })
+                val latestUserText = _messages.value.lastOrNull { it.isUser }?.text.orEmpty()
+                val loadedFacts = try {
+                    memory.extractDurableFact(latestUserText)?.let { memory.remember(it) }
+                    memory.facts()
+                } catch (memoryError: Exception) {
+                    _memoryNotice.value = "Memory could not be loaded for this session: ${memoryError.message ?: memoryError.javaClass.simpleName}"
+                    _memories.value
                 }
-            } catch (e: Exception) {
-                appendBot("Jawab nahi mil paya: ${e.message ?: "internet check kariye"}")
+                _memories.value = loadedFacts
+                var finalReply: BrainReply? = null
+                var finalError: Exception? = null
+                for ((providerIndex, provider) in providers.withIndex()) {
+                    if (providerIndex > 0) {
+                        val switched = "${providers[providerIndex - 1].provider.displayName} did not complete the request; switching to ${provider.provider.displayName}."
+                        appendSystemNotice(switched)
+                        phoneTaskActivityId?.let { id ->
+                            HomeActivityTracker.update(id, "Switching to ${provider.provider.displayName}", note = switched)
+                        }
+                    }
+                    val brain = JarvisBrain(
+                        providerConfig = provider,
+                        userContext = characterContext()
+                    )
+                    val providerStartedAt = SystemClock.elapsedRealtime()
+                    try {
+                        finalReply = brain.reply(
+                            history = _messages.value,
+                            onDraft = { draft -> _assistantDraft.value = draft },
+                            executeTool = { intent ->
+                                if (phoneTaskActivityId == null) {
+                                    phoneTaskActivityId = "phone-plan-${System.currentTimeMillis()}"
+                                    HomeActivityTracker.begin(
+                                        id = phoneTaskActivityId!!,
+                                        kind = "Phone action",
+                                        title = "Jarvis phone-control task",
+                                        step = "Waiting for the requested action"
+                                    )
+                                }
+                                phoneTaskSteps++
+                                val activityId = phoneTaskActivityId!!
+                                HomeActivityTracker.update(activityId, "Running phone-control step $phoneTaskSteps")
+                                val outcome = executeBrainTool(intent)
+                                toolResults += outcome
+                                HomeActivityTracker.update(
+                                    activityId,
+                                    "Running phone-control step $phoneTaskSteps",
+                                    note = outcome.message
+                                )
+                                outcome
+                            }
+                        )
+                        AiProviderTelemetry.record(app, provider.provider, SystemClock.elapsedRealtime() - providerStartedAt, true)
+                        finalError = null
+                        break
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        AiProviderTelemetry.record(app, provider.provider, SystemClock.elapsedRealtime() - providerStartedAt, false)
+                        finalError = error
+                        _assistantDraft.value = ""
+                        if (toolResults.any { it.success }) {
+                            throw IllegalStateException(
+                                "${provider.provider.displayName} failed after a phone action completed. To prevent duplicate actions, no provider retry was made. Verify the activity before continuing.",
+                                error
+                            )
+                        }
+                        if (providerIndex == providers.lastIndex) throw error
+                    }
+                }
+                val completedReply = finalReply ?: throw finalError ?: IllegalStateException("No configured provider returned a reply.")
+                val statusNotices = toolResults.filterNot { it.success }
+                    .map { it.message.trim() }
+                    .filter { it.isNotBlank() }
+                _needsAttention.value = statusNotices.isNotEmpty() || _pendingTapConfirmation.value != null
+                val response = buildString {
+                    append(completedReply.text.ifBlank { "I did not get a final reply from the configured AI provider." })
+                    if (statusNotices.isNotEmpty()) {
+                        append("\n\nPhone safety status:\n")
+                        append(statusNotices.joinToString("\n"))
+                    }
+                }
+                appendBot(response)
+                phoneTaskActivityId?.let { id ->
+                    if (toolResults.all { it.success }) HomeActivityTracker.complete(id, "Phone-control task completed")
+                    else HomeActivityTracker.fail(id, toolResults.firstOrNull { !it.success }?.message.orEmpty())
+                }
+            } catch (cancelled: CancellationException) {
+                phoneTaskActivityId?.let { HomeActivityTracker.cancel(it, "Phone-control task cancelled") }
+                throw cancelled
+            } catch (error: Exception) {
+                phoneTaskActivityId?.let { HomeActivityTracker.fail(it, error.message.orEmpty()) }
+                _needsAttention.value = true
+                val priorToolResults = toolResults.joinToString("\n") { it.message }
+                    .takeIf { it.isNotBlank() }
+                val detail = error.message ?: error.javaClass.simpleName
+                val message = if (priorToolResults == null) {
+                    "No phone action is being reported as complete. Jarvis could not finish the AI reply: $detail. Check the configured provider and retry."
+                } else {
+                    "The AI provider could not finish its follow-up: $detail. Phone tool result(s):\n$priorToolResults"
+                }
+                appendBot(message)
             } finally {
-                _isThinking.value = false
+                _assistantDraft.value = ""
+                endWork()
             }
         }
+    }
+
+    private fun appendSystemNotice(text: String) {
+        _messages.value = _messages.value + JarvisMessage(nextId(), text, isUser = false, kind = JarvisMessageKind.SYSTEM)
     }
 
     private fun appendBot(text: String) {
@@ -234,6 +509,8 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun clearChat() {
+        seenLiveMessageIds.clear()
+        _pendingTapConfirmation.value = null
         _messages.value = listOf(
             JarvisMessage(nextId(), greetingMessage(), isUser = false, kind = JarvisMessageKind.SYSTEM)
         )
@@ -314,15 +591,12 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         val activityId = "jarvis-speech-$generation"
         activeSpeechActivityId = activityId
         val app = getApplication<Application>()
-        val decision = VoiceRouter.decide(app, VoiceSettings.mode(app), emotion)
+        val decision = VoiceRouter.decide(VoiceSettings.mode(app), emotion)
 
-        _voiceLabel.value = when (decision.provider) {
-            VoiceRouter.Provider.PHONE -> "फ़ोन की आवाज़"
-            VoiceRouter.Provider.GEMINI -> "Gemini ${VoiceSettings.geminiVoice(app)}"
-            VoiceRouter.Provider.ELEVENLABS -> "${VoiceSettings.voiceName(decision.voiceId)} (ElevenLabs)"
-            VoiceRouter.Provider.VOXCPM -> "VoxCPM2"
-            VoiceRouter.Provider.SMALLEST -> "Smallest ${decision.voiceId.ifBlank { "clone" }}"
-            VoiceRouter.Provider.HEYGEN -> "HeyGen"
+        _voiceLabel.value = if (decision.provider == VoiceRouter.Provider.PHONE) {
+            "फ़ोन की आवाज़"
+        } else {
+            "Gemini ${VoiceSettings.geminiVoice(app)}"
         }
         HomeActivityTracker.begin(
             id = activityId,
@@ -332,10 +606,10 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             progress = null
         )
 
-        when (decision.provider) {
-            VoiceRouter.Provider.PHONE -> speakPhone(spokenText, decision.speed, generation, activityId)
-            VoiceRouter.Provider.GEMINI -> speakGemini(spokenText, emotion, generation, activityId)
-            else -> speakServer(spokenText, decision, emotion, generation, activityId)
+        if (decision.provider == VoiceRouter.Provider.PHONE) {
+            speakPhone(spokenText, decision.speed, generation, activityId)
+        } else {
+            speakGemini(spokenText, emotion, generation, activityId)
         }
     }
 
@@ -348,7 +622,6 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         activePhoneUtteranceId = null
         activePhoneActivityId = null
         runCatching { tts?.stop() }
-        runCatching { voicePlayer?.stop() }
         pcmPlayer?.close()
         pcmPlayer = null
         _isSpeaking.value = false
@@ -432,84 +705,6 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Server-backed ElevenLabs, VoxCPM2, Smallest, or HeyGen synthesis. */
-    private fun speakServer(
-        text: String,
-        decision: VoiceRouter.Decision,
-        emotion: Emotion,
-        generation: Long,
-        activityId: String
-    ) {
-        val app = getApplication<Application>()
-        speechJob = viewModelScope.launch {
-            val provider = when (decision.provider) {
-                VoiceRouter.Provider.ELEVENLABS -> "elevenlabs"
-                VoiceRouter.Provider.VOXCPM -> "voxcpm"
-                VoiceRouter.Provider.SMALLEST -> "smallest"
-                VoiceRouter.Provider.HEYGEN -> "heygen"
-                else -> return@launch
-            }
-            try {
-                HomeActivityTracker.update(activityId, "Generating speech with $provider")
-                val client = TtsClient(app)
-                val bytes = client.synthesize(
-                    text = text,
-                    provider = provider,
-                    voice = decision.voiceId,
-                    speed = decision.speed,
-                    sentenceMode = true,
-                    style = decision.elevenStyle,
-                    stability = decision.elevenStability,
-                    elevenKey = VoiceSettings.elevenKey(app),
-                    styleRequest = decision.styleRequest
-                )
-                if (generation != speechGeneration.get()) return@launch
-                val file = client.saveMp3(bytes, "reply_${System.currentTimeMillis()}.mp3")
-                if (decision.provider == VoiceRouter.Provider.ELEVENLABS) VoiceState.elevenBlocked = false
-                val player = voicePlayer ?: Mp3Player(app).also { voicePlayer = it }
-                _isSpeaking.value = true
-                HomeActivityTracker.update(activityId, "Playing generated $provider audio")
-                player.play(file) {
-                    if (generation == speechGeneration.get()) {
-                        _isSpeaking.value = false
-                        completeSpeech(activityId, "$provider playback finished")
-                    }
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                if (generation != speechGeneration.get()) return@launch
-                val planError = decision.provider == VoiceRouter.Provider.ELEVENLABS &&
-                    isElevenLabsPaymentOrPlanError(error)
-                if (planError) VoiceState.elevenBlocked = true
-                val providerName = when (decision.provider) {
-                    VoiceRouter.Provider.ELEVENLABS -> "ElevenLabs"
-                    VoiceRouter.Provider.VOXCPM -> "VoxCPM2"
-                    VoiceRouter.Provider.SMALLEST -> "Smallest"
-                    VoiceRouter.Provider.HEYGEN -> "HeyGen"
-                    else -> "Voice provider"
-                }
-                val failure = if (planError) {
-                    "$providerName plan/credits are unavailable."
-                } else {
-                    "$providerName voice failed (${error.message ?: "service error"})."
-                }
-                if (GeminiApiKeyStore.read(app).isNotBlank()) {
-                    _voiceLabel.value = "Gemini ${VoiceSettings.geminiVoice(app)}"
-                    _voiceNotice.value = "$failure Using Gemini TTS for this reply."
-                    HomeActivityTracker.update(activityId, "$provider failed; switching to Gemini TTS", note = failure)
-                    speakGemini(text, emotion, generation, activityId)
-                } else {
-                    _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
-                    val notice = "$failure Gemini TTS is not configured; using the phone's free voice as a last-resort fallback."
-                    _voiceNotice.value = notice
-                    HomeActivityTracker.update(activityId, "$provider failed; switching to phone TTS", note = notice)
-                    speakPhone(text, decision.speed, generation, activityId)
-                }
-            }
-        }
-    }
-
     private fun completeSpeech(activityId: String?, step: String) {
         if (activityId == null) return
         HomeActivityTracker.complete(activityId, step)
@@ -520,17 +715,6 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         if (activityId == null) return
         HomeActivityTracker.fail(activityId, reason)
         if (activeSpeechActivityId == activityId) activeSpeechActivityId = null
-    }
-
-    private fun isElevenLabsPaymentOrPlanError(error: Throwable): Boolean {
-        if (error is ElevenLabsException && error.isPaymentOrPlanError) return true
-        if (error is TtsRequestException && error.isPaymentOrPlanError) return true
-        val details = generateSequence(error as Throwable?) { it.cause }
-            .take(5)
-            .joinToString(" ") { it.message.orEmpty() }
-            .lowercase()
-        return listOf("paid_plan_required", "payment_required", "payment required", "paid plan", "plan required")
-            .any { details.contains(it) } || Regex("""\b402\b""").containsMatchIn(details)
     }
 
     fun dismissVoiceNotice() {
@@ -545,8 +729,12 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     fun voiceMode(): VoiceMode = VoiceSettings.mode(getApplication())
 
     fun setVoiceMode(mode: VoiceMode) {
-        VoiceSettings.setMode(getApplication(), mode)
-        appendBot("Voice mode: ${mode.name.lowercase().replace('_', ' ')} — अब Jarvis इसी आवाज़ में बोलेगा।")
+        if (mode != VoiceMode.GEMINI_FREE) {
+            appendBot("Android phone TTS is emergency fallback only. Gemini TTS remains Jarvis's normal voice.")
+            return
+        }
+        VoiceSettings.setMode(getApplication(), VoiceMode.GEMINI_FREE)
+        appendBot("Gemini TTS is Jarvis's normal voice; Android phone TTS is reserved for emergency fallback.")
     }
 
     fun toggleAutoSpeak() {
@@ -655,8 +843,6 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         stopSpeak()
         tts?.shutdown()
         tts = null
-        runCatching { voicePlayer?.release() }
-        voicePlayer = null
         super.onCleared()
     }
 

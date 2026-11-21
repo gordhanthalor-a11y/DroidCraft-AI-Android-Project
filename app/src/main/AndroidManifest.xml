@@ -1,41 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
->
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network & Backend API Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    
-    <!-- AI Voice Input Permission -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- Requested only when the user enables location-based HUD weather -->
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <!-- Jarvis Flashlight (torch) ke liye -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
-
-    <!-- Jarvis "Hey Jarvis" background wake-word listening -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-
-    <!-- Jarvis contacts se call/SMS by name -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    
-    <!-- Android 13+ Notification Alert Permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    
-    <!-- Reliable Background Upload WorkManager -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.ACCESS_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Android 11+ package visibility: Jarvis ko installed apps, browser, dialer aur alarm dekhne ke liye -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -44,10 +25,6 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SENDTO" />
-            <data android:scheme="smsto" />
         </intent>
         <intent>
             <action android:name="android.intent.action.DIAL" />
@@ -70,7 +47,6 @@
         android:theme="@style/Theme.DroidCraft"
         tools:targetApi="35">
 
-        <!-- Main Dashboard Activity with Jetpack Compose -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -80,35 +56,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-            <!-- YouTube OAuth 2.0 Deep Link Redirect -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="api.droidcraft.app"
-                    android:pathPrefix="/oauth2/callback" />
-            </intent-filter>
         </activity>
 
-        <!-- Social OAuth redirect receiver -->
-        <activity
-            android:name=".social.auth.OAuthRedirectActivity"
-            android:exported="true"
-            android:theme="@android:style/Theme.NoDisplay"
-            android:excludeFromRecents="true"
-            android:noHistory="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="localhost" android:pathPrefix="/oauth2callback" />
-            </intent-filter>
-        </activity>
-
-        <!-- Jarvis screen automation (accessibility) -->
         <service
             android:name=".jarvis.a11y.JarvisAccessibilityService"
             android:exported="true"
@@ -122,30 +71,39 @@
                 android:resource="@xml/jarvis_accessibility_service" />
         </service>
 
-        <!-- Jarvis "Hey Jarvis" wake-word foreground service -->
+        <!-- The body stays independent of the screen-only AccessibilityService. -->
         <service
-            android:name=".jarvis.wake.WakeWordService"
+            android:name=".jarvis.overlay.JarvisBodyService"
             android:exported="false"
-            android:foregroundServiceType="microphone"
-            android:stopWithTask="false" />
+            android:foregroundServiceType="specialUse|microphone|mediaProjection">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled conversational device assistant body for voice, ball and local reminders" />
+        </service>
 
-        <!-- FileProvider — MP3/video share के लिए -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
+        <service
+            android:name=".jarvis.notifications.JarvisNotificationListenerService"
+            android:label="Jarvis notification awareness"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
-        <!-- WorkManager initialization -->
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge" />
+        <receiver
+            android:name=".jarvis.reminders.ReminderAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
+        <activity
+            android:name=".jarvis.permissions.JarvisRuntimePermissionActivity"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"
+            android:excludeFromRecents="true"
+            android:exported="false" />
     </application>
 </manifest>

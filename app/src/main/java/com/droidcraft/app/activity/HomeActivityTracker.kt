@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** In-process activity timeline shared by Studio, Chat, Live Talk, publishing, and the Jarvis home feed. */
+/** In-process activity timeline for Jarvis conversation and speech sessions. */
 enum class HomeActivityStatus {
     RUNNING,
     WAITING,

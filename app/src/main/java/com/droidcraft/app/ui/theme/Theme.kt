@@ -12,39 +12,50 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF56EFF7),
-    onPrimary = Color(0xFF001418),
-    primaryContainer = Color(0xFF07343B),
-    onPrimaryContainer = Color(0xFFC9FCFF),
-    secondary = Color(0xFF48E1C2),
-    onSecondary = Color(0xFF002018),
-    secondaryContainer = Color(0xFF0B352E),
-    onSecondaryContainer = Color(0xFFC6FFF0),
-    tertiary = Color(0xFFE6B55A),
-    onTertiary = Color(0xFF241700),
-    background = Color(0xFF050B15),
-    onBackground = Color(0xFFE7F5F8),
-    surface = Color(0xFF081421),
-    onSurface = Color(0xFFE7F5F8),
-    surfaceVariant = Color(0xFF0E2030),
-    onSurfaceVariant = Color(0xFFA3BAC6),
-    outline = Color(0xFF294654),
-    error = Color(0xFFFF7183),
-    errorContainer = Color(0xFF3A111B),
-    onErrorContainer = Color(0xFFFFD9DF)
-)
+private fun darkColors(orbTheme: OrbTheme) = when (orbTheme) {
+    OrbTheme.CYAN -> darkColorScheme(
+        primary = Color(0xFF56EFF7), onPrimary = Color(0xFF001418),
+        primaryContainer = Color(0xFF07343B), onPrimaryContainer = Color(0xFFC9FCFF),
+        secondary = Color(0xFFB6FBFF), onSecondary = Color(0xFF002018),
+        secondaryContainer = Color(0xFF0B352E), onSecondaryContainer = Color(0xFFC6FFF0),
+        tertiary = Color(0xFF48E1C2), onTertiary = Color(0xFF002018),
+        background = Color(0xFF050B15), onBackground = Color(0xFFE7F5F8),
+        surface = Color(0xFF081421), onSurface = Color(0xFFE7F5F8),
+        surfaceVariant = Color(0xFF0E2030), onSurfaceVariant = Color(0xFFA3BAC6),
+        outline = Color(0xFF294654), error = Color(0xFFFF7183),
+        errorContainer = Color(0xFF3A111B), onErrorContainer = Color(0xFFFFD9DF)
+    )
+    OrbTheme.AMBER_GOLD -> darkColorScheme(
+        primary = Color(0xFFFFC247), onPrimary = Color(0xFF291800),
+        primaryContainer = Color(0xFF493006), onPrimaryContainer = Color(0xFFFFE8B1),
+        secondary = Color(0xFFFFE0A0), onSecondary = Color(0xFF291800),
+        secondaryContainer = Color(0xFF3D2B10), onSecondaryContainer = Color(0xFFFFEAC4),
+        tertiary = Color(0xFFFF9957), onTertiary = Color(0xFF351A02),
+        background = Color(0xFF100B05), onBackground = Color(0xFFFFF4DE),
+        surface = Color(0xFF1A1208), onSurface = Color(0xFFFFF4DE),
+        surfaceVariant = Color(0xFF302312), onSurfaceVariant = Color(0xFFD4C09A),
+        outline = Color(0xFF67502B), error = Color(0xFFFF7183),
+        errorContainer = Color(0xFF3A111B), onErrorContainer = Color(0xFFFFD9DF)
+    )
+}
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF087E8B),
-    secondary = Color(0xFF087A68),
-    tertiary = Color(0xFF916400)
-)
+private fun lightColors(orbTheme: OrbTheme) = when (orbTheme) {
+    OrbTheme.CYAN -> lightColorScheme(
+        primary = Color(0xFF087E8B), secondary = Color(0xFF087A68), tertiary = Color(0xFF006B76)
+    )
+    OrbTheme.AMBER_GOLD -> lightColorScheme(
+        primary = Color(0xFF8A5B00), secondary = Color(0xFF9A4B10), tertiary = Color(0xFF735000)
+    )
+}
 
 @Composable
-fun DroidCraftTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
+fun DroidCraftTheme(
+    darkTheme: Boolean = true,
+    orbTheme: OrbTheme = OrbTheme.CYAN,
+    content: @Composable () -> Unit
+) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = if (darkTheme) darkColors(orbTheme) else lightColors(orbTheme),
         content = content
     )
 }
