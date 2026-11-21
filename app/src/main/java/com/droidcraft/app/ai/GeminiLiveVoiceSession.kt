@@ -183,10 +183,16 @@ internal class GeminiLiveVoiceSession(
                 }
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
+                        override fun onMessage(webSocket: WebSocket, text: String) {
                 if (!isCurrentAttempt(attempt)) return
                 lastConnectionEvent = "Received a server message from Gemini Live."
                 handleServerMessage(text, attempt)
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                if (!isCurrentAttempt(attempt)) return
+                lastConnectionEvent = "Received a server message from Gemini Live."
+                handleServerMessage(bytes.utf8(), attempt)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
