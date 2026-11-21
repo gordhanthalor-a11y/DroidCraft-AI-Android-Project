@@ -140,10 +140,13 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // ------------------------------------------------------------------ chat
-
+    /** Latest user words (chat or Live), used to authorize send/payment taps for this request. */
+    @Volatile private var lastUserText: String =  ""
+    
     fun handleUserText(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        lastUserText = trimmed
         if (_isThinking.value) {
             appendBot("I am still finishing the previous request. No new action was started; please try again in a moment.")
             return
@@ -198,7 +201,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         if (intent.type != JarvisIntentType.TAP) return false
         val target = intent.args["target"].orEmpty()
         val packageName = device.currentActivePackageName()
-        when (val decision = ActionSafety.assessTap(target, packageName, device.currentActiveAppLabel())) {
+        when (val decision = ActionSafety.assessTap(target, packageName, device.currentActiveAppLabel(), lastUserText)) {
             is ActionSafety.TapDecision.Blocked -> {
                 _needsAttention.value = true
                 appendBot(decision.reason)
@@ -221,6 +224,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Safety-checked executor used by Gemini Live's explicitly requested phone tools. */
     suspend fun executeLiveTool(toolName: String, args: JSONObject, userText: String): JarvisOutcome {
+                lastUserText = userText
         val activityId = "live-tool-${System.currentTimeMillis()}-${toolName.hashCode()}"
         HomeActivityTracker.begin(activityId, "Phone action", toolName.replace('_', ' '), "Checking authorization")
         val intent = JarvisToolIntents.fromTool(toolName, args)
@@ -229,8 +233,9 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             !ActionSafety.wasExplicitlyRequested(userText, intent) ->
                 JarvisOutcome("मना किया गया: बोले गए अनुरोध में इस काम के लिए स्पष्ट रूप से नहीं कहा गया था। कुछ नहीं बदला गया।", false)
             intent.type == JarvisIntentType.TYPE_TEXT &&
-                !ActionSafety.isUserProvidedText(userText, intent.args["text"].orEmpty()) ->
-                JarvisOutcome("Refused: only text literally supplied by you may be entered. Nothing was typed.", false)
+                !ActionSafety.isUserProvidedText(userText, intent.args["text"].orEmpty()) &&
+            !ActionSafety.userAskedToCompose(userText) ->
+                JarvisOutcome("मना किया गया: यह text उपयोगकर्ता के शब्दों से नहीं बना है और लिखने को भी नहीं कहा गया था। कुछ type नहीं किया गया।", false)
             else -> {
                 HomeActivityTracker.update(activityId, "Running the requested phone action")
                 try {
@@ -249,6 +254,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun executeBrainTool(intent: JarvisIntent): JarvisOutcome {
+                device.currentUserText = lastUserText
         if (intent.type == JarvisIntentType.TAP) {
             val (packageName, appLabel) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
                 device.currentActivePackageName() to device.currentActiveAppLabel()
@@ -256,7 +262,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             if (packageName.isNullOrBlank()) {
                 return JarvisOutcome("Accessibility is unavailable or no active app could be verified. No tap was sent.", false)
             }
-            when (val decision = ActionSafety.assessTap(intent.args["target"].orEmpty(), packageName, appLabel)) {
+            when (val decision = ActionSafety.assessTap(intent.args["target"].orEmpty(), packageName, appLabel, lastUserText)) {
                 is ActionSafety.TapDecision.Blocked -> return JarvisOutcome(decision.reason, false)
                 is ActionSafety.TapDecision.RequiresConfirmation -> {
                     _pendingTapConfirmation.value = PendingTapConfirmation(
