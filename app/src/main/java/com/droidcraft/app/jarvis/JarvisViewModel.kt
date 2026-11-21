@@ -226,8 +226,8 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         val intent = JarvisToolIntents.fromTool(toolName, args)
         val outcome = when {
             intent == null -> JarvisOutcome("Unsupported phone action. Nothing was changed.", false)
-            !ActionSafety.wasExplicitlyRequested(userText, intent.type) ->
-                JarvisOutcome("Refused: the current spoken request did not explicitly ask for this action. Nothing was changed.", false)
+            !ActionSafety.wasExplicitlyRequested(userText, intent) ->
+                JarvisOutcome("मना किया गया: बोले गए अनुरोध में इस काम के लिए स्पष्ट रूप से नहीं कहा गया था। कुछ नहीं बदला गया।", false)
             intent.type == JarvisIntentType.TYPE_TEXT &&
                 !ActionSafety.isUserProvidedText(userText, intent.args["text"].orEmpty()) ->
                 JarvisOutcome("Refused: only text literally supplied by you may be entered. Nothing was typed.", false)
