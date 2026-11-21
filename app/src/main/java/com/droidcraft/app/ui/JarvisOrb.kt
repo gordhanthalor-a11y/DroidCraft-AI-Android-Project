@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +42,7 @@ fun JarvisOrb(
     state: String,
     energy: Float,
     audioLevel: Float,
-    phase: Float,
+    phase: State<Float>,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -75,6 +76,8 @@ fun JarvisOrb(
         contentAlignment = Alignment.Center
     ) {
         Canvas(Modifier.fillMaxSize()) {
+
+            val phase = phase.value
             val center = Offset(size.width / 2f, size.height / 2f)
             val unit = size.minDimension
             val ringBase = unit * 0.235f
