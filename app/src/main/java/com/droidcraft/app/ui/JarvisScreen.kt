@@ -1,7 +1,7 @@
 package com.droidcraft.app.ui
 
 import android.Manifest
-import android.app.BatteryManager
+import android.os.BatteryManager
 import android.content.pm.PackageManager
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,7 +52,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.Capitalization
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -222,13 +222,14 @@ fun JarvisScreen(
         }
 
         Box(Modifier.fillMaxWidth().height(292.dp), contentAlignment = Alignment.Center) {
-            AnimatedVisibility(
-                visible = showWorkingPlinth,
-                modifier = Modifier.align(Alignment.Center),
-                enter = fadeIn(tween(380)),
-                exit = fadeOut(tween(520))
-            ) {
-                WorkingTaskPlinth(phase = phase, color = hudAccent)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                AnimatedVisibility(
+                    visible = showWorkingPlinth,
+                    enter = fadeIn(tween(380)),
+                    exit = fadeOut(tween(520))
+                ) {
+                    WorkingTaskPlinth(phase = phase, color = hudAccent)
+                }
             }
             JarvisOrb(
                 state = visualState,
@@ -293,7 +294,7 @@ fun JarvisScreen(
                 shape = RoundedCornerShape(17.dp),
                 singleLine = false,
                 maxLines = 2,
-                keyboardOptions = KeyboardOptions(capitalization = Capitalization.Sentences),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedTextColor = hudText,
                     unfocusedTextColor = hudText,
