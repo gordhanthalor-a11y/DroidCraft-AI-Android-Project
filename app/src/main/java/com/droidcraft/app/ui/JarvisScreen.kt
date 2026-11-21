@@ -68,6 +68,8 @@ import com.droidcraft.app.ai.LiveToolExecutor
 import com.droidcraft.app.jarvis.JarvisMessage
 import com.droidcraft.app.jarvis.JarvisMessageKind
 import com.droidcraft.app.jarvis.JarvisViewModel
+import com.droidcraft.app.jarvis.HudWeather
+import com.droidcraft.app.jarvis.HudWeatherRepository
 import com.droidcraft.app.jarvis.overlay.JarvisBubbleController
 import com.droidcraft.app.model.LiveConversationStatus
 import com.droidcraft.app.viewmodel.JarvisConversationViewModel
@@ -84,7 +86,8 @@ fun JarvisScreen(
     energy: Float,
     phase: State<Float>,
     hasGeminiKey: Boolean,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenMemories: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val hudText = MaterialTheme.colorScheme.onBackground
@@ -176,6 +179,21 @@ fun JarvisScreen(
     val clock = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(nowMs))
     val amPm = SimpleDateFormat("a", Locale.getDefault()).format(Date(nowMs))
     val date = SimpleDateFormat("EEE · d MMM", Locale.getDefault()).format(Date(nowMs))
+        var weather by remember { mutableStateOf<HudWeather?>(null) }
+    var locationGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            )
+    }
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        locationGranted = granted
+    }
+    LaunchedEffect(locationGranted) {
+        if (!locationGranted) return@LaunchedEffect
+        val location = lastKnownLocation(context) ?: return@LaunchedEffect
+        runCatching { HudWeatherRepository().current(location.latitude, location.longitude, "") }
+        .onSuccess { weather = it }
+    }
     val level = max(outputLevel, liveAudioLevel).coerceIn(0f, 1f)
     val uptime = formatUptime(SystemClock.elapsedRealtime())
     val latestActivity = activities.firstOrNull()
@@ -241,7 +259,11 @@ fun JarvisScreen(
                 modifier = Modifier.size(284.dp)
             )
         }
-
+        WeatherCard(
+            weather = weather,
+            locationGranted = locationGranted,
+            onEnableLocation = { locationPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
+            )
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 5.dp, vertical = 3.dp),
             state = listState,
@@ -281,7 +303,26 @@ fun JarvisScreen(
             )
             Text("LOG ›", color = hudPrimary, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
         }
-
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+            QuickActionButton(
+                label = "Screen",
+                onClick = { jarvisViewModel.handleUserText("Read the screen") },
+                modifier = Modifier.weight(1f)
+                )
+            QuickActionButton(
+                label = "Memories",
+                onClick = onOpenMemories,
+                modifier = Modifier.weight(1f)
+                )
+            QuickActionButton(
+                label = "Language · Hindi",
+                onClick = onOpenSettings,
+                modifier = Modifier.weight(1f)
+                )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -479,4 +520,57 @@ private fun LiveConversationStatus.isActive(): Boolean = when (this) {
     LiveConversationStatus.SPEAKING -> true
     LiveConversationStatus.IDLE,
     LiveConversationStatus.ERROR -> false
+}
+
+
+@Composable
+private fun WeatherCard(weather: HudWeather?, locationGranted: Boolean, onEnableLocation: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+        .clickable { if (!locationGranted) onEnableLocation() }
+        .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+        ) {
+        Text(
+            text = when {
+                !locationGranted -> "Weather — tap to enable location"
+                weather != null -> "${weather.temperatureC}°C · ${weather.condition}"
+                else -> "Weather loading…"
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp
+            )
+    }
+}
+
+@Composable
+private fun QuickActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+    ) {
+    Box(
+        modifier = modifier
+        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+        .clickable(onClick = onClick)
+        .padding(horizontal = 8.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+        ) {
+        Text(
+            label,
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+            )
+    }
+}
+
+private fun lastKnownLocation(context: android.content.Context): android.location.Location? {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
+    val manager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager ?: return null
+    return runCatching {
+        manager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+        ?: manager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+    }.getOrNull()
 }
