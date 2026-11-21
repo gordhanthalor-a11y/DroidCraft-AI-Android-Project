@@ -50,7 +50,7 @@ def prepare(job_id: str, url: str, lang: str = "hi"):
             video = work_dir / "source.mp4"
             # yt-dlp से download
             r = _run(["yt-dlp", "-f", "bv*[height<=1080]+ba/b", "--merge-output-format", "mp4",
-                                "--extractor-args", "youtube:player_client=android",
+                                "--extractor-args", "youtube:player_client=android,tv,web,ios",
                       "-o", str(video), url], timeout=1200)
             if r.returncode != 0 or not video.exists():
                 job.update(status="failed", error=f"download fail: {r.stderr[:300]}")
