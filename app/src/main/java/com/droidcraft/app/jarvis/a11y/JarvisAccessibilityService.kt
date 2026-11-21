@@ -103,7 +103,8 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun tapText(
         target: String,
         confirmedByUser: Boolean = false,
-        expectedPackageName: String? = null
+        expectedPackageName: String? = null,
+        userText: String = ""
     ): LabelTapResult {
         val root = rootInActiveWindow
             ?: return LabelTapResult.NotFound("The active window is unavailable; no tap was sent.")
@@ -112,7 +113,7 @@ class JarvisAccessibilityService : AccessibilityService() {
         if (expectedPackageName != null && packageName != expectedPackageName) {
             return LabelTapResult.Refused("The active app changed before confirmation. No tap was sent; ask again on the intended screen.")
         }
-        when (val decision = ActionSafety.assessTap(target, packageName, appLabel)) {
+        when (val decision = ActionSafety.assessTap(target, packageName, appLabel, userText)) {
             is ActionSafety.TapDecision.Blocked -> return LabelTapResult.Refused(decision.reason)
             is ActionSafety.TapDecision.RequiresConfirmation -> if (!confirmedByUser) {
                 return LabelTapResult.Refused(decision.reason)
@@ -127,7 +128,7 @@ class JarvisAccessibilityService : AccessibilityService() {
         } else {
             LabelTapResult.NotFound("No visible enabled control labelled '$target' was found; no tap was sent.")
         }
-        when (val decision = ActionSafety.assessTap(match.label, packageName, appLabel)) {
+        when (val decision = ActionSafety.assessTap(match.label, packageName, appLabel, userText)) {
             is ActionSafety.TapDecision.Blocked -> return LabelTapResult.Refused(decision.reason)
             is ActionSafety.TapDecision.RequiresConfirmation -> if (!confirmedByUser) {
                 return LabelTapResult.Refused(decision.reason)
@@ -360,7 +361,9 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun normalize(value: String): String =
+    private fun stripMatras(value: String): String =
+        value.replace(Regex("[\\u093C\\u093E-\\u094D\\u0900-\\u0903\\u0962-\\u0963\\u200C\\u200D]"), "")
+private fun normalize(value: String): String =
         value.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
 
     /** Resolves only an exact or uniquely high-confidence launcher label. */
@@ -375,11 +378,14 @@ class JarvisAccessibilityService : AccessibilityService() {
         val candidates = apps.mapNotNull { info ->
             val label = runCatching { info.loadLabel(packageManager).toString() }.getOrDefault("").trim()
             val normalized = normalize(label)
-            val score = when {
+                        val score = when {
                 normalized == needle -> 100
+                normalized.replace(" ") == needle.replace(" ") -> 95
+                stripMatras(normalized) == stripMatras(needle) -> 90
                 normalized.startsWith(needle) -> 80
+                normalized.contains(needle) -> 60
                 else -> 0
-            }
+                        }
             if (score == 0) null else Triple(label, info.activityInfo.packageName, score)
         }
         val bestScore = candidates.maxOfOrNull { it.third } ?: return null
