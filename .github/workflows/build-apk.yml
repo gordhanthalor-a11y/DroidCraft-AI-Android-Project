@@ -26,22 +26,23 @@ jobs:
       - name: Set up Gradle dependency cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Restore DroidCraft signing keystore from Actions secrets
+      - name: Validate DroidCraft signing key and Actions secret
         shell: bash
         env:
-          DROIDCRAFT_SIGNING_KEYSTORE_BASE64: ${{ secrets.DROIDCRAFT_SIGNING_KEYSTORE_BASE64 }}
           DROIDCRAFT_SIGNING_PASSWORD: ${{ secrets.DROIDCRAFT_SIGNING_PASSWORD }}
         run: |
           set -euo pipefail
-          if [[ -z "$DROIDCRAFT_SIGNING_KEYSTORE_BASE64" || -z "$DROIDCRAFT_SIGNING_PASSWORD" ]]; then
-            echo "::error::DroidCraft signing secrets are required; refusing to create a generic-debug-signed CI APK."
+          key_file="$GITHUB_WORKSPACE/keystore/droidcraft-debug.keystore"
+          if [[ -z "$DROIDCRAFT_SIGNING_PASSWORD" ]]; then
+            echo "::error::The DROIDCRAFT_SIGNING_PASSWORD Actions secret is required; refusing to create a generic-debug-signed CI APK."
             exit 1
           fi
-          key_file="$RUNNER_TEMP/droidcraft-debug.keystore"
-          printf '%s' "$DROIDCRAFT_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$key_file"
-          chmod 600 "$key_file"
+          if [[ ! -s "$key_file" ]]; then
+            echo "::error::The original DroidCraft signing keystore is missing."
+            exit 1
+          fi
           if ! keytool -list -keystore "$key_file" -storetype PKCS12 -storepass "$DROIDCRAFT_SIGNING_PASSWORD" -alias droidcraft >/dev/null 2>&1; then
-            echo "::error::The configured DroidCraft signing keystore could not be opened with the Actions secret."
+            echo "::error::The DroidCraft signing keystore could not be opened with the Actions secret."
             exit 1
           fi
           echo "DROIDCRAFT_SIGNING_KEYSTORE_PATH=$key_file" >> "$GITHUB_ENV"
@@ -102,22 +103,12 @@ jobs:
           certificate_report="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
           printf '%s\n' "$certificate_report"
           certificate_dn="$(printf '%s\n' "$certificate_report" | sed -n 's/^Signer #1 certificate DN: //p' | head -n 1)"
-          python3 - "$certificate_dn" <<'PY'
-          import sys
-          dn = sys.argv[1]
-          parts = [part.strip() for part in dn.split(",") if part.strip()]
-          subject = {}
-          for part in parts:
-              key, separator, value = part.partition("=")
-              if not separator or key in subject:
-                  raise SystemExit("APK certificate subject is malformed.")
-              subject[key.strip()] = value.strip()
-          expected = {"C": "IN", "O": "DroidCraft", "CN": "DroidCraft Debug"}
-          if subject != expected or len(parts) != len(expected):
-              print(f"Unexpected APK certificate subject: {dn or '<missing>'}")
-              raise SystemExit(1)
-          print("APK certificate subject confirmed: C=IN, O=DroidCraft, CN=DroidCraft Debug")
-          PY
+          expected_dn='C=IN, O=DroidCraft, CN=DroidCraft Debug'
+          if [[ "$certificate_dn" != "$expected_dn" ]]; then
+            echo "::error::Unexpected APK certificate subject: ${certificate_dn:-<missing>}"
+            exit 1
+          fi
+          echo "APK certificate subject confirmed: $certificate_dn"
           sha256="$(sha256sum "$apk" | awk '{print $1}')"
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
 
@@ -172,22 +163,12 @@ jobs:
           certificate_report="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
           printf '%s\n' "$certificate_report"
           certificate_dn="$(printf '%s\n' "$certificate_report" | sed -n 's/^Signer #1 certificate DN: //p' | head -n 1)"
-          python3 - "$certificate_dn" <<'PY'
-          import sys
-          dn = sys.argv[1]
-          parts = [part.strip() for part in dn.split(",") if part.strip()]
-          subject = {}
-          for part in parts:
-              key, separator, value = part.partition("=")
-              if not separator or key in subject:
-                  raise SystemExit("APK certificate subject is malformed.")
-              subject[key.strip()] = value.strip()
-          expected = {"C": "IN", "O": "DroidCraft", "CN": "DroidCraft Debug"}
-          if subject != expected or len(parts) != len(expected):
-              print(f"Unexpected APK certificate subject: {dn or '<missing>'}")
-              raise SystemExit(1)
-          print("APK certificate subject confirmed: C=IN, O=DroidCraft, CN=DroidCraft Debug")
-          PY
+          expected_dn='C=IN, O=DroidCraft, CN=DroidCraft Debug'
+          if [[ "$certificate_dn" != "$expected_dn" ]]; then
+            echo "::error::Unexpected downloaded APK certificate subject: ${certificate_dn:-<missing>}"
+            exit 1
+          fi
+          echo "Downloaded APK certificate subject confirmed: $certificate_dn"
           actual_sha256="$(sha256sum "$apk" | awk '{print $1}')"
           if [[ "$actual_sha256" != "$EXPECTED_SHA256" ]]; then
             echo "::error::Downloaded artifact SHA-256 differs from the Gradle output."
