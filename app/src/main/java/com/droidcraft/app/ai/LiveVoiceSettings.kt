@@ -17,8 +17,7 @@ object LiveVoiceSettings {
     private const val KEY_MODEL = "live_model"
 
     val liveModels = listOf(
-        "models/gemini-3.8-live",
-        "models/gemini-3.1-flash-live"
+        "models/gemini-3.8-live"
     )
     const val DEFAULT_LIVE_MODEL = "models/gemini-3.8-live"
     const val DEFAULT_SILENCE_DURATION_MS = 600
