@@ -16,11 +16,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.studio.StudioClient
 import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.studio.tts.TtsClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 private val Cyan = Color(0xFF56EFF7)
 private val Slate = Color(0xFFA3BAC6)
@@ -82,17 +85,50 @@ fun DubbingScreen() {
                         return@Button
                     }
                     busy = true; status = "Server download + transcript शुरू…"
+                    val activityId = "dubbing-prepare-${UUID.randomUUID()}"
+                    val sourceName = url.trim().substringAfter("://", url.trim()).take(48)
+                    HomeActivityTracker.begin(
+                        id = activityId,
+                        kind = "Dubbing",
+                        title = "Dubbing prep · $sourceName",
+                        step = "Submitting source for transcription",
+                        progress = null
+                    )
                     scope.launch {
-                        runCatching {
+                        try {
                             val job = client.dubPrepare(url.trim())
+                            HomeActivityTracker.update(
+                                activityId,
+                                dubbingActivityStep(job.status),
+                                progress = job.progress
+                            )
                             jobId = job.id
-                            val done = client.dubWait(job.id)
+                            val done = client.dubWait(job.id) { serverStatus, serverProgress, error ->
+                                if (serverStatus == "failed") {
+                                    HomeActivityTracker.fail(activityId, error ?: "Dubbing preparation failed on the server.")
+                                } else {
+                                    HomeActivityTracker.update(
+                                        activityId,
+                                        dubbingActivityStep(serverStatus),
+                                        progress = serverProgress
+                                    )
+                                }
+                            }
                             transcript = done.transcript
                             script = done.transcript
                             step = 1
                             status = "Transcript तैयार ✅"
-                        }.onFailure { status = "Fail: ${it.message}" }
-                        busy = false
+                            HomeActivityTracker.complete(activityId, "Transcript ready for editing")
+                        } catch (cancelled: CancellationException) {
+                            HomeActivityTracker.cancel(activityId, "Dubbing preparation was cancelled")
+                            throw cancelled
+                        } catch (error: Exception) {
+                            val detail = error.message ?: "Dubbing preparation failed without a server detail."
+                            status = "Fail: $detail"
+                            HomeActivityTracker.fail(activityId, detail)
+                        } finally {
+                            busy = false
+                        }
                     }
                 },
                 enabled = !busy, modifier = Modifier.fillMaxWidth()
@@ -150,15 +186,45 @@ fun DubbingScreen() {
             Button(
                 onClick = {
                     busy = true; status = "Server render हो रहा है… (आवाज़ + video merge)"
+                    val activityId = "dubbing-render-${UUID.randomUUID()}"
+                    HomeActivityTracker.begin(
+                        id = activityId,
+                        kind = "Dubbing render",
+                        title = "Dubbing render · ${jobId.take(24)}",
+                        step = "Submitting script and voice for rendering",
+                        progress = null
+                    )
                     scope.launch {
-                        runCatching {
-                            val job = client.dubRender(jobId, script, voice, provider, speed)
-                            val f = client.downloadVideo(job.outputUrl!!, "dubbed_$jobId.mp4")
+                        try {
+                            val job = client.dubRender(jobId, script, voice, provider, speed) { serverStatus, serverProgress, error ->
+                                if (serverStatus == "failed") {
+                                    HomeActivityTracker.fail(activityId, error ?: "Dubbing render failed on the server.")
+                                } else {
+                                    HomeActivityTracker.update(
+                                        activityId,
+                                        dubbingRenderActivityStep(serverStatus),
+                                        progress = serverProgress
+                                    )
+                                }
+                            }
+                            HomeActivityTracker.update(activityId, "Downloading rendered video to this device")
+                            val outputUrl = job.outputUrl
+                                ?: throw IllegalStateException("Render finished without a download URL.")
+                            val f = client.downloadVideo(outputUrl, "dubbed_$jobId.mp4")
                             outFile = f
                             step = 2
                             status = "Render तैयार ✅"
-                        }.onFailure { status = "Fail: ${it.message}" }
-                        busy = false
+                            HomeActivityTracker.complete(activityId, "Dubbed video saved · ${f.name}")
+                        } catch (cancelled: CancellationException) {
+                            HomeActivityTracker.cancel(activityId, "Dubbing render was cancelled")
+                            throw cancelled
+                        } catch (error: Exception) {
+                            val detail = error.message ?: "Dubbing render failed without a server detail."
+                            status = "Fail: $detail"
+                            HomeActivityTracker.fail(activityId, detail)
+                        } finally {
+                            busy = false
+                        }
                     }
                 },
                 enabled = !busy && script.isNotBlank(), modifier = Modifier.fillMaxWidth()

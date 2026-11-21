@@ -36,8 +36,10 @@ object FacebookPublisher {
         context: Context,
         post: PostQueueEntity,
         account: SocialAccountEntity,
-        caption: PostCaptionEntity?
+        caption: PostCaptionEntity?,
+        onProgress: (step: String, progress: Int?) -> Unit = { _, _ -> }
     ): PublishResult {
+        onProgress("Authenticating Facebook Page", null)
         val token = OAuthManager.validAccessToken(context, account)
         val pageId = account.accountId
         if (pageId.isBlank() || pageId == "meta") {
@@ -63,6 +65,7 @@ object FacebookPublisher {
             )
             .build()
 
+        onProgress("Uploading video to Facebook Page", null)
         val resp = client.newCall(
             Request.Builder().url(url).post(body).build()
         ).execute()
@@ -71,6 +74,7 @@ object FacebookPublisher {
             return PublishResult(false, null, "FB publish fail: ${json.optJSONObject("error")?.optString("message") ?: json.toString()}")
         }
         val videoId = json.optString("id").ifBlank { null }
+        onProgress("Facebook accepted the video", null)
         Log.i(TAG, "FB published: $videoId")
         return PublishResult(true, videoId, null)
     }

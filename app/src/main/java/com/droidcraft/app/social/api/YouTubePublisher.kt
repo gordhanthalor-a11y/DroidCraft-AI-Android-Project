@@ -40,8 +40,10 @@ object YouTubePublisher {
         context: Context,
         post: PostQueueEntity,
         account: SocialAccountEntity,
-        caption: PostCaptionEntity?
+        caption: PostCaptionEntity?,
+        onProgress: (step: String, progress: Int?) -> Unit = { _, _ -> }
     ): PublishResult = withContext(Dispatchers.IO) {
+        onProgress("Authenticating YouTube account", null)
         val token = OAuthManager.validAccessToken(context, account)
         val title = (caption?.title ?: post.title).take(100)
         val description = buildString {
@@ -71,6 +73,7 @@ object YouTubePublisher {
         }
 
         val initUrl = "$UPLOAD?uploadType=resumable&part=snippet,status"
+        onProgress("Creating YouTube upload session", null)
         val initResp = client.newCall(
             Request.Builder()
                 .url(initUrl)
@@ -90,6 +93,7 @@ object YouTubePublisher {
 
         // 2) chunked upload (progress के साथ)
         val total = file.length()
+        onProgress("Uploading video bytes to YouTube", if (total > 0L) 0 else null)
         val chunk = 2 * 1024 * 1024L
         var uploaded = 0L
         var videoId: String? = null
@@ -117,6 +121,8 @@ object YouTubePublisher {
                     return@withContext PublishResult(false, null, "Upload chunk fail ($uploaded/$total): $err")
                 }
                 uploaded = end
+                val uploadProgress = if (total > 0L) ((uploaded * 100L) / total).toInt().coerceIn(0, 100) else null
+                onProgress("Uploading video to YouTube", uploadProgress)
                 if (resp.code == 200 || resp.code == 201) {
                     videoId = runCatching {
                         JSONObject(resp.body?.string().orEmpty()).optString("id")
@@ -130,11 +136,13 @@ object YouTubePublisher {
         }
 
         // 3) thumbnail set (अगर है)
+        onProgress("Setting YouTube thumbnail, if supplied", null)
         post.thumbnailPath?.takeIf { File(it).exists() }?.let { thumb ->
             setThumbnail(token, videoId, thumb)
         }
 
         // 4) verify — videos.list?part=status
+        onProgress("Verifying the uploaded YouTube video", null)
         if (videoId.isNullOrBlank()) {
             videoId = verifyByTitle(token, title)
         }

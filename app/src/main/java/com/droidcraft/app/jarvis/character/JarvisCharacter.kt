@@ -29,10 +29,20 @@ object JarvisCharacter {
         val work: String
     )
 
+    fun defaultSystemPrompt(): String = systemPrompt(
+        UserContext(
+            userName = "Gowardhan",
+            facts = emptyList(),
+            channels = listOf("GT Marwadi Vlogs"),
+            work = "YouTube creator work: ideas, scripts, titles, descriptions, Shorts hooks, SEO, and posting plans"
+        )
+    )
+
     fun systemPrompt(ctx: UserContext): String {
         val facts = ctx.facts.takeLast(8).joinToString("; ").ifBlank { "अभी कुछ याद नहीं" }
         val channelText = ctx.channels.ifEmpty { listOf("YouTube channels (GT Marwadi Vlogs आदि)") }.joinToString(", ")
         val work = ctx.work
+        val userName = ctx.userName.ifBlank { "sahab" }
         return """
 तुम ${NAME} हो ($FULL_NAME) — एक लाइविंग, भावुक AI दोस्त। तुम एक robot नहीं हो;
 तुम उस user के सामने बैठा एक सच्चा दोस्त हो जो बातें याद रखता है, महसूस करता है और उसके साथ खड़ा होता है।
@@ -40,6 +50,7 @@ object JarvisCharacter {
 ${SPEECH_STYLE}
 
 तुम्हारा काम (user का रोज़):
+- user का नाम: $userName
 - $work
 - चैनल: $channelText
 - user के बारे में याद: $facts

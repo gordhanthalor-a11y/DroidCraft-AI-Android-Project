@@ -19,10 +19,12 @@ import com.droidcraft.app.jarvis.character.Emotion
 import com.droidcraft.app.jarvis.character.EmotionEngine
 import com.droidcraft.app.jarvis.character.JarvisCharacter
 import com.droidcraft.app.jarvis.memory.MemoryManager
+import com.droidcraft.app.jarvis.voice.SpokenTextCleaner
 import com.droidcraft.app.jarvis.voice.VoiceMode
 import com.droidcraft.app.jarvis.voice.VoiceRouter
 import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.jarvis.voice.VoiceState
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.jarvis.wake.WakeWordService
 import com.droidcraft.app.data.GeminiApiKeyStore
 import com.droidcraft.app.data.GeminiModelSettings
@@ -42,11 +44,19 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
     private val device = JarvisDevice(application)
     private val memory = MemoryManager(application)
 
-    private data class PendingPhoneSpeech(val text: String, val speed: Float, val generation: Long)
+    private data class PendingPhoneSpeech(
+        val text: String,
+        val speed: Float,
+        val generation: Long,
+        val activityId: String
+    )
 
     private var tts: TextToSpeech? = null
+    @Volatile private var phoneTtsInitializationFailed = false
     private var pendingPhoneSpeech: PendingPhoneSpeech? = null
     @Volatile private var activePhoneUtteranceId: String? = null
+    @Volatile private var activePhoneActivityId: String? = null
+    private var activeSpeechActivityId: String? = null
     private var speechJob: Job? = null
     private var voicePlayer: Mp3Player? = null
     private var pcmPlayer: PcmAudioPlayer? = null
@@ -242,13 +252,20 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                 engine?.setSpeechRate(1.0f)
                 engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
-                        if (utteranceId == activePhoneUtteranceId) _isSpeaking.value = true
+                        if (utteranceId == activePhoneUtteranceId) {
+                            _isSpeaking.value = true
+                            activePhoneActivityId?.let {
+                                HomeActivityTracker.update(it, "Android phone TTS is speaking")
+                            }
+                        }
                     }
 
                     override fun onDone(utteranceId: String?) {
                         if (utteranceId == activePhoneUtteranceId) {
                             activePhoneUtteranceId = null
                             _isSpeaking.value = false
+                            completeSpeech(activePhoneActivityId, "Phone TTS finished")
+                            activePhoneActivityId = null
                         }
                     }
 
@@ -257,28 +274,45 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                         if (utteranceId == activePhoneUtteranceId) {
                             activePhoneUtteranceId = null
                             _isSpeaking.value = false
+                            failSpeech(activePhoneActivityId, "Android phone TTS could not speak this reply.")
+                            activePhoneActivityId = null
+                            _voiceNotice.value = "Android phone TTS could not speak this reply."
                         }
                     }
                 })
                 _ttsReady.value = true
+                phoneTtsInitializationFailed = false
                 pendingPhoneSpeech?.let { pending ->
                     pendingPhoneSpeech = null
                     if (pending.generation == speechGeneration.get()) {
-                        speakPhone(pending.text, pending.speed, pending.generation)
+                        speakPhone(pending.text, pending.speed, pending.generation, pending.activityId)
                     }
+                }
+            } else {
+                _ttsReady.value = false
+                phoneTtsInitializationFailed = true
+                val pending = pendingPhoneSpeech
+                pendingPhoneSpeech = null
+                if (pending != null) {
+                    val notice = "Android phone TTS is unavailable; no speech fallback could start."
+                    _voiceNotice.value = notice
+                    failSpeech(pending.activityId, notice)
                 }
             }
         }
     }
 
-    /** Speaks each Jarvis reply with the voice selected by the emotion router. */
-    fun speak(text: String, emotion: Emotion = _emotion.value) {
+    /** Routes a speech-only copy through the same voice decision used on the Jarvis tab. */
+    fun speak(text: String, emotion: Emotion = _emotion.value, force: Boolean = false) {
         _emotion.value = emotion
         _voiceNotice.value = null
-        if (!_autoSpeak.value) return
+        val spokenText = SpokenTextCleaner.clean(text)
+        if (spokenText.isBlank() || (!_autoSpeak.value && !force)) return
 
         val generation = speechGeneration.incrementAndGet()
         stopSpeechPlayback()
+        val activityId = "jarvis-speech-$generation"
+        activeSpeechActivityId = activityId
         val app = getApplication<Application>()
         val decision = VoiceRouter.decide(app, VoiceSettings.mode(app), emotion)
 
@@ -290,19 +324,29 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
             VoiceRouter.Provider.SMALLEST -> "Smallest ${decision.voiceId.ifBlank { "clone" }}"
             VoiceRouter.Provider.HEYGEN -> "HeyGen"
         }
+        HomeActivityTracker.begin(
+            id = activityId,
+            kind = "TTS",
+            title = "Jarvis spoken reply",
+            step = "Routing speech to ${_voiceLabel.value}",
+            progress = null
+        )
 
         when (decision.provider) {
-            VoiceRouter.Provider.PHONE -> speakPhone(text, decision.speed, generation)
-            VoiceRouter.Provider.GEMINI -> speakGemini(text, emotion, generation)
-            else -> speakServer(text, decision, emotion, generation)
+            VoiceRouter.Provider.PHONE -> speakPhone(spokenText, decision.speed, generation, activityId)
+            VoiceRouter.Provider.GEMINI -> speakGemini(spokenText, emotion, generation, activityId)
+            else -> speakServer(spokenText, decision, emotion, generation, activityId)
         }
     }
 
-    private fun stopSpeechPlayback() {
+    private fun stopSpeechPlayback(reason: String = "Stopped before playback finished") {
+        activeSpeechActivityId?.let { HomeActivityTracker.cancel(it, reason) }
+        activeSpeechActivityId = null
         speechJob?.cancel()
         speechJob = null
         pendingPhoneSpeech = null
         activePhoneUtteranceId = null
+        activePhoneActivityId = null
         runCatching { tts?.stop() }
         runCatching { voicePlayer?.stop() }
         pcmPlayer?.close()
@@ -310,34 +354,52 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         _isSpeaking.value = false
     }
 
-    private fun speakPhone(text: String, speed: Float, generation: Long) {
+    private fun speakPhone(text: String, speed: Float, generation: Long, activityId: String) {
         val engine = tts
         if (engine == null || !_ttsReady.value) {
-            pendingPhoneSpeech = PendingPhoneSpeech(text, speed, generation)
+            if (phoneTtsInitializationFailed) {
+                val notice = "Android phone TTS is unavailable; no speech fallback could start."
+                _voiceNotice.value = notice
+                failSpeech(activityId, notice)
+                return
+            }
+            pendingPhoneSpeech = PendingPhoneSpeech(text, speed, generation, activityId)
+            HomeActivityTracker.update(activityId, "Waiting for Android phone TTS")
             return
         }
         pendingPhoneSpeech = null
         val utteranceId = "jarvis_${generation}_${System.currentTimeMillis()}"
         activePhoneUtteranceId = utteranceId
+        activePhoneActivityId = activityId
+        HomeActivityTracker.update(activityId, "Starting Android phone TTS")
         engine.setSpeechRate(speed.coerceIn(0.5f, 2.0f))
         val result = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         if (result == TextToSpeech.ERROR && activePhoneUtteranceId == utteranceId) {
             activePhoneUtteranceId = null
+            activePhoneActivityId = null
             _isSpeaking.value = false
-            _voiceNotice.value = "Android phone TTS could not start this reply."
+            val notice = "Android phone TTS could not start this reply."
+            _voiceNotice.value = notice
+            failSpeech(activityId, notice)
         }
     }
 
-    private fun speakGemini(text: String, emotion: Emotion, generation: Long) {
+    private fun speakGemini(text: String, emotion: Emotion, generation: Long, activityId: String) {
         val app = getApplication<Application>()
         val apiKey = GeminiApiKeyStore.read(app)
         if (apiKey.isBlank()) {
             _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
-            _voiceNotice.value = "Gemini TTS needs a Gemini API key; using the phone's free voice instead."
-            speakPhone(text, EmotionEngine.style(emotion).voiceSpeed, generation)
+            val notice = "Gemini TTS needs a Gemini API key; using the phone's free voice instead."
+            _voiceNotice.value = notice
+            HomeActivityTracker.update(activityId, "Gemini key missing; using last-resort phone TTS", note = notice)
+            speakPhone(text, EmotionEngine.style(emotion).voiceSpeed, generation, activityId)
             return
         }
 
+        HomeActivityTracker.update(
+            activityId,
+            "Generating speech with Gemini ${VoiceSettings.geminiVoice(app)}"
+        )
         speechJob = viewModelScope.launch {
             try {
                 val pcm = GeminiTtsClient(apiKey, VoiceSettings.geminiVoice(app))
@@ -346,19 +408,26 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                 val player = PcmAudioPlayer()
                 pcmPlayer = player
                 _isSpeaking.value = true
+                HomeActivityTracker.update(activityId, "Playing Gemini-generated audio")
                 player.enqueue(
                     pcm,
                     shouldPlay = { generation == speechGeneration.get() }
                 ) {
-                    if (generation == speechGeneration.get()) _isSpeaking.value = false
+                    if (generation == speechGeneration.get()) {
+                        _isSpeaking.value = false
+                        completeSpeech(activityId, "Gemini TTS playback finished")
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (generation != speechGeneration.get()) return@launch
                 _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
-                _voiceNotice.value = "Gemini TTS failed (${error.message ?: "service error"}); using the phone's free voice."
-                speakPhone(text, EmotionEngine.style(emotion).voiceSpeed, generation)
+                val detail = error.message ?: "service error"
+                val notice = "Gemini TTS failed ($detail); using the phone's free voice as a last-resort fallback."
+                _voiceNotice.value = notice
+                HomeActivityTracker.update(activityId, "Gemini failed; switching to phone TTS", note = notice)
+                speakPhone(text, EmotionEngine.style(emotion).voiceSpeed, generation, activityId)
             }
         }
     }
@@ -368,7 +437,8 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
         text: String,
         decision: VoiceRouter.Decision,
         emotion: Emotion,
-        generation: Long
+        generation: Long,
+        activityId: String
     ) {
         val app = getApplication<Application>()
         speechJob = viewModelScope.launch {
@@ -380,6 +450,7 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                 else -> return@launch
             }
             try {
+                HomeActivityTracker.update(activityId, "Generating speech with $provider")
                 val client = TtsClient(app)
                 val bytes = client.synthesize(
                     text = text,
@@ -397,8 +468,12 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                 if (decision.provider == VoiceRouter.Provider.ELEVENLABS) VoiceState.elevenBlocked = false
                 val player = voicePlayer ?: Mp3Player(app).also { voicePlayer = it }
                 _isSpeaking.value = true
+                HomeActivityTracker.update(activityId, "Playing generated $provider audio")
                 player.play(file) {
-                    if (generation == speechGeneration.get()) _isSpeaking.value = false
+                    if (generation == speechGeneration.get()) {
+                        _isSpeaking.value = false
+                        completeSpeech(activityId, "$provider playback finished")
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -422,14 +497,29 @@ class JarvisViewModel(application: Application) : AndroidViewModel(application) 
                 if (GeminiApiKeyStore.read(app).isNotBlank()) {
                     _voiceLabel.value = "Gemini ${VoiceSettings.geminiVoice(app)}"
                     _voiceNotice.value = "$failure Using Gemini TTS for this reply."
-                    speakGemini(text, emotion, generation)
+                    HomeActivityTracker.update(activityId, "$provider failed; switching to Gemini TTS", note = failure)
+                    speakGemini(text, emotion, generation, activityId)
                 } else {
                     _voiceLabel.value = "फ़ोन की मुफ़्त आवाज़"
-                    _voiceNotice.value = "$failure Gemini TTS is not configured; using the phone's free voice."
-                    speakPhone(text, decision.speed, generation)
+                    val notice = "$failure Gemini TTS is not configured; using the phone's free voice as a last-resort fallback."
+                    _voiceNotice.value = notice
+                    HomeActivityTracker.update(activityId, "$provider failed; switching to phone TTS", note = notice)
+                    speakPhone(text, decision.speed, generation, activityId)
                 }
             }
         }
+    }
+
+    private fun completeSpeech(activityId: String?, step: String) {
+        if (activityId == null) return
+        HomeActivityTracker.complete(activityId, step)
+        if (activeSpeechActivityId == activityId) activeSpeechActivityId = null
+    }
+
+    private fun failSpeech(activityId: String?, reason: String) {
+        if (activityId == null) return
+        HomeActivityTracker.fail(activityId, reason)
+        if (activeSpeechActivityId == activityId) activeSpeechActivityId = null
     }
 
     private fun isElevenLabsPaymentOrPlanError(error: Throwable): Boolean {

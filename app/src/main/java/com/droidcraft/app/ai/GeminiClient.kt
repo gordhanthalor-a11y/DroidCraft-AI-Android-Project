@@ -1,6 +1,7 @@
 package com.droidcraft.app.ai
 
 import com.droidcraft.app.data.GeminiModelSettings
+import com.droidcraft.app.jarvis.character.JarvisCharacter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -33,7 +34,7 @@ class GeminiClient(
         private const val MAX_MODEL_LIST_PAGES = 5
         private const val RETRY_503_DELAY_MS = 1_500L
 
-        val DEFAULT_SYSTEM_PROMPT = "Tum DroidCraft ke AI Creator Assistant ho, ek Hindi farming/agriculture YouTube creator (GT Marwadi Vlogs) ki madad karte ho: video ideas, scripts, titles, descriptions, tags, thumbnails ke ideas, Shorts hooks, SEO aur posting plan. User jis bhasha mein likhe (Hindi, Hinglish ya English) usi mein chhota, kaam ka jawab do."
+        val DEFAULT_SYSTEM_PROMPT: String = JarvisCharacter.defaultSystemPrompt()
 
         private fun newHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)

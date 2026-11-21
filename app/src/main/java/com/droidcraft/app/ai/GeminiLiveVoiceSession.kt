@@ -347,7 +347,7 @@ internal class GeminiLiveVoiceSession(
             JSONArray().put(
                 JSONObject().put(
                     "text",
-                    "You are Jarvis, a helpful live voice assistant for a Hindi and English creator. " +
+                    "You are J.A.R.V.I.S. (Jarvis), a helpful live voice assistant for a Hindi and English creator. " +
                         "Reply naturally in the language the user speaks (Hindi, Hinglish, or English). " +
                         "Keep spoken answers concise, warm, and emotionally expressive. Use clear conversational " +
                         "sentences, not markdown or stage directions."

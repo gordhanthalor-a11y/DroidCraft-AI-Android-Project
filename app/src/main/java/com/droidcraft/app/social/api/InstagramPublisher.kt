@@ -31,8 +31,10 @@ object InstagramPublisher {
         context: Context,
         post: PostQueueEntity,
         account: SocialAccountEntity,
-        caption: PostCaptionEntity?
+        caption: PostCaptionEntity?,
+        onProgress: (step: String, progress: Int?) -> Unit = { _, _ -> }
     ): PublishResult {
+        onProgress("Authenticating Instagram account", null)
         val token = OAuthManager.validAccessToken(context, account)
         val igUserId = account.accountId
         if (igUserId.isBlank() || igUserId == "meta") {
@@ -47,6 +49,7 @@ object InstagramPublisher {
             ?: return PublishResult(false, null, "Instagram Graph API को publicly reachable video URL चाहिए. Server relay use करो (SOCIAL_SETUP.md §F).")
 
         val containerUrl = "$GRAPH/$igUserId/media"
+        onProgress("Requesting Instagram media container", null)
         val form = FormBody.Builder()
             .add("media_type", if (post.isShort) "REELS" else "VIDEO")
             .add("video_url", videoUrl)
@@ -64,9 +67,11 @@ object InstagramPublisher {
         if (creationId.isBlank()) {
             return PublishResult(false, null, "IG creation_id नहीं मिला.")
         }
+        onProgress("Instagram is preparing the video container", null)
 
         // 2) publish
         val publishUrl = "$GRAPH/$igUserId/media_publish"
+        onProgress("Publishing media to Instagram", null)
         val publishForm = FormBody.Builder()
             .add("creation_id", creationId)
             .add("access_token", token)
@@ -81,6 +86,7 @@ object InstagramPublisher {
         val mediaId = pubJson.optString("id").ifBlank { creationId }
 
         // 3) status verify
+        onProgress("Checking Instagram publication status", null)
         val status = checkStatus(token, mediaId)
         return PublishResult(true, mediaId, null).also {
             Log.i(TAG, "IG published: $mediaId status=$status")

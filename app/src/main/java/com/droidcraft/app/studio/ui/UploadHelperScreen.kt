@@ -19,9 +19,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.studio.qc.VideoQc
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 private val Cyan = Color(0xFF56EFF7)
 private val Slate = Color(0xFFA3BAC6)
@@ -40,6 +43,7 @@ fun UploadHelperScreen() {
     var uri by remember { mutableStateOf<Uri?>(null) }
     var report by remember { mutableStateOf<VideoQc.Report?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var checkFailure by remember { mutableStateOf<String?>(null) }
     var topic by remember { mutableStateOf("") }
     var credit by remember { mutableStateOf(StudioSettings.creditLine(context)) }
 
@@ -47,9 +51,33 @@ fun UploadHelperScreen() {
         if (u != null) {
             uri = u
             busy = true
+            checkFailure = null
+            val activityId = "upload-qc-${UUID.randomUUID()}"
+            HomeActivityTracker.begin(
+                id = activityId,
+                kind = "Upload Helper",
+                title = "Upload preflight",
+                step = "Reading selected video metadata",
+                progress = null
+            )
             scope.launch {
-                report = VideoQc.run(context, u)
-                busy = false
+                try {
+                    HomeActivityTracker.update(activityId, "Running upload quality checks")
+                    val result = VideoQc.run(context, u)
+                    report = result
+                    val passCount = result.checks.count { it.pass }
+                    val summary = "${passCount}/${result.checks.size} preflight checks passed"
+                    HomeActivityTracker.complete(activityId, "Preflight complete", note = summary)
+                } catch (cancelled: CancellationException) {
+                    HomeActivityTracker.cancel(activityId, "Upload preflight was cancelled")
+                    throw cancelled
+                } catch (error: Exception) {
+                    val detail = error.message ?: "Video preflight failed without an error detail."
+                    checkFailure = detail
+                    HomeActivityTracker.fail(activityId, detail)
+                } finally {
+                    busy = false
+                }
             }
         }
     }
@@ -77,6 +105,7 @@ fun UploadHelperScreen() {
         if (busy) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
+        checkFailure?.let { Text("Preflight failed: $it", color = Red, fontSize = 12.sp) }
 
         // ---------------- QC checks
         report?.let { r ->

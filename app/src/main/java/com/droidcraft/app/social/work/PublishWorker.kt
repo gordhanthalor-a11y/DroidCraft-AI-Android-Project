@@ -8,6 +8,7 @@ import com.droidcraft.app.social.ai.CaptionGenerator
 import com.droidcraft.app.social.api.FacebookPublisher
 import com.droidcraft.app.social.api.InstagramPublisher
 import com.droidcraft.app.social.api.YouTubePublisher
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.data.local.AppDatabase
 import com.droidcraft.app.social.data.PublishHistoryEntity
 import com.droidcraft.app.social.data.PublishResult
@@ -37,8 +38,17 @@ class PublishWorker(
             return Result.success()
         }
 
+        val activityId = "upload-${post.id}"
+        HomeActivityTracker.begin(
+            id = activityId,
+            kind = "Upload",
+            title = post.title.ifBlank { "${post.platform} upload" },
+            step = "Preparing upload to ${post.platform}",
+            progress = null
+        )
         Log.i(TAG, "publish start: ${post.platform}/${post.id} retry=${post.retryCount}")
         db.postQueueDao().markUploading(postId)
+        HomeActivityTracker.update(activityId, "Checking connected ${post.platform} account")
 
         val account = db.socialAccountDao().getActive(post.platform)
         if (account == null) {
@@ -46,11 +56,22 @@ class PublishWorker(
         }
 
         val caption = db.postCaptionDao().get(postId, post.platform)
-        val result = when (post.platform) {
-            SocialPlatform.YOUTUBE -> YouTubePublisher.publish(applicationContext, post, account, caption)
-            SocialPlatform.INSTAGRAM -> InstagramPublisher.publish(applicationContext, post, account, caption)
-            SocialPlatform.FACEBOOK -> FacebookPublisher.publish(applicationContext, post, account, caption)
-            else -> PublishResult(false, null, "Unknown platform")
+        val onProgress: (String, Int?) -> Unit = { step, progress ->
+            HomeActivityTracker.update(activityId, step, progress = progress)
+        }
+        val result = try {
+            when (post.platform) {
+                SocialPlatform.YOUTUBE -> YouTubePublisher.publish(applicationContext, post, account, caption, onProgress)
+                SocialPlatform.INSTAGRAM -> InstagramPublisher.publish(applicationContext, post, account, caption, onProgress)
+                SocialPlatform.FACEBOOK -> FacebookPublisher.publish(applicationContext, post, account, caption, onProgress)
+                else -> PublishResult(false, null, "Unknown platform")
+            }
+        } catch (error: Exception) {
+            HomeActivityTracker.fail(
+                activityId,
+                error.message ?: "Upload worker stopped without a provider error detail."
+            )
+            throw error
         }
 
         if (result.success && result.externalId != null) {
@@ -66,11 +87,17 @@ class PublishWorker(
                     errorMessage = null
                 )
             )
+            HomeActivityTracker.complete(
+                activityId,
+                "Published to ${post.platform}",
+                note = "Provider item ID: ${result.externalId}"
+            )
             Log.i(TAG, "published ✅ ${post.platform}/${result.externalId}")
             return Result.success()
         }
 
         val error = result.error ?: "unknown error"
+        HomeActivityTracker.fail(activityId, error)
         db.publishHistoryDao().insert(
             PublishHistoryEntity(
                 postId = postId,
@@ -109,6 +136,7 @@ class PublishWorker(
         post: com.droidcraft.app.social.data.PostQueueEntity,
         message: String
     ): Result {
+        HomeActivityTracker.fail("upload-${post.id}", message)
         db.postQueueDao().markFailed(post.id, SocialStatus.FAILED, message)
         db.publishHistoryDao().insert(
             PublishHistoryEntity(

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.droidcraft.app.jarvis.JarvisViewModel
 import com.droidcraft.app.jarvis.wake.WakeWordService
 import com.droidcraft.app.ui.DroidCraftNavHost
 import com.droidcraft.app.ui.theme.DroidCraftTheme
@@ -27,6 +28,7 @@ import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
 class MainActivity : ComponentActivity() {
 
     private val viewModel: YouTubeAutomationViewModel by viewModels()
+    private val jarvisViewModel: JarvisViewModel by viewModels()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var wakeReceiverRegistered = false
     private var wakeInputPending = false
@@ -46,7 +48,9 @@ class MainActivity : ComponentActivity() {
             val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
             spoken?.let { text ->
                 Log.i(TAG, "Voice recognized: $text")
-                viewModel.sendAssistantMessage(text)
+                viewModel.sendAssistantMessage(text) { reply, emotion ->
+                    jarvisViewModel.speak(reply, emotion, force = true)
+                }
             }
         }
         restartWakeWordIfEnabled()
@@ -65,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     DroidCraftNavHost(
                         viewModel = viewModel,
+                        jarvisViewModel = jarvisViewModel,
                         onTriggerVoiceInput = { launchVoiceRecognizer() }
                     )
                 }

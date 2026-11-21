@@ -14,6 +14,13 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
+private fun JSONObject.progressValue(): Int? = when (val value = opt("progress")) {
+    null, JSONObject.NULL -> null
+    is Number -> value.toInt().coerceIn(0, 100)
+    is String -> value.toIntOrNull()?.coerceIn(0, 100)
+    else -> null
+}
+
 /**
  * Dubbing (B3) + Clipper (B4) के server calls। App = UI/remote; server = काम।
  */
@@ -64,13 +71,20 @@ class StudioClient(private val context: Context) {
     }
 
     /** Job पूरा होने तक wait करो (या failed)। */
-    private suspend fun awaitJob(path: String, statusField: String = "status"): JSONObject {
+    private suspend fun awaitJob(
+        path: String,
+        statusField: String = "status",
+        onProgress: (status: String, progress: Int?, error: String?) -> Unit = { _, _, _ -> }
+    ): JSONObject {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < MAX_WAIT_MS) {
             val j = getJson(path)
             if (j.length() == 0) throw IllegalStateException("Creator Studio could not find this job.")
-            val st = j.optString(statusField, "")
-            if (st == "ready" || st == "done" || st == "failed") return j
+            val status = j.optString(statusField, "")
+            val progress = j.progressValue()
+            val error = j.optString("error").takeIf { it.isNotBlank() && it != "null" }
+            onProgress(status, progress, error)
+            if (status == "ready" || status == "done" || status == "failed") return j
             kotlinx.coroutines.delay(POLL_MS)
         }
         throw IllegalStateException("server job timeout")
@@ -79,28 +93,52 @@ class StudioClient(private val context: Context) {
     // ---------------------------------------------------------------- Dubbing
 
     data class DubJob(
-        val id: String, val status: String, val transcript: String,
-        val outputUrl: String?, val error: String?
+        val id: String,
+        val status: String,
+        val transcript: String,
+        val outputUrl: String?,
+        val error: String?,
+        val progress: Int? = null
     )
 
     suspend fun dubPrepare(url: String): DubJob = withContext(Dispatchers.IO) {
         val j = post("/api/v1/dub/prepare", JSONObject().put("url", url))
-        DubJob(j.optString("id"), j.optString("status"), "", null, j.optString("error"))
+        DubJob(
+            j.optString("id"),
+            j.optString("status"),
+            "",
+            null,
+            j.optString("error"),
+            j.progressValue()
+        )
     }
 
-    suspend fun dubWait(jobId: String): DubJob = withContext(Dispatchers.IO) {
-        val j = awaitJob("/api/v1/dub/$jobId")
+    suspend fun dubWait(
+        jobId: String,
+        onProgress: (status: String, progress: Int?, error: String?) -> Unit = { _, _, _ -> }
+    ): DubJob = withContext(Dispatchers.IO) {
+        val j = awaitJob("/api/v1/dub/$jobId", onProgress = onProgress)
         val status = j.optString("status")
         val error = j.optString("error").takeIf { it.isNotBlank() && it != "null" }
         if (status == "failed") throw IllegalStateException(error ?: "Dubbing preparation failed on the server.")
         DubJob(
-            j.optString("id", jobId), status, j.optString("transcript"),
-            null, error
+            j.optString("id", jobId),
+            status,
+            j.optString("transcript"),
+            null,
+            error,
+            j.progressValue()
         )
     }
 
-    suspend fun dubRender(jobId: String, script: String, voice: String, provider: String, speed: Float): DubJob =
-        withContext(Dispatchers.IO) {
+    suspend fun dubRender(
+        jobId: String,
+        script: String,
+        voice: String,
+        provider: String,
+        speed: Float,
+        onProgress: (status: String, progress: Int?, error: String?) -> Unit = { _, _, _ -> }
+    ): DubJob = withContext(Dispatchers.IO) {
             val providerKey = when (provider.lowercase()) {
                 "smallest" -> StudioSettings.smallestKey(context)
                 "heygen" -> StudioSettings.heygenKey(context)
@@ -116,13 +154,18 @@ class StudioClient(private val context: Context) {
             if (!started.optBoolean("ok", false)) {
                 throw IllegalStateException(started.optString("error").ifBlank { "The server could not start dubbing." })
             }
-            val completed = awaitJob("/api/v1/dub/$jobId")
+            onProgress("rendering", 10, null)
+            val completed = awaitJob("/api/v1/dub/$jobId", onProgress = onProgress)
             val status = completed.optString("status")
             val error = completed.optString("error").takeIf { it.isNotBlank() && it != "null" }
             if (status != "done") throw IllegalStateException(error ?: "Dubbing render did not complete (status: $status).")
             DubJob(
-                completed.optString("id", jobId), status, completed.optString("transcript"),
-                serverUrl("/api/v1/dub/$jobId/file"), error
+                completed.optString("id", jobId),
+                status,
+                completed.optString("transcript"),
+                serverUrl("/api/v1/dub/$jobId/file"),
+                error,
+                completed.progressValue()
             )
         }
 
@@ -150,9 +193,12 @@ class StudioClient(private val context: Context) {
     // ---------------------------------------------------------------- Clipper
 
     data class ClipJob(
-        val id: String, val status: String,
+        val id: String,
+        val status: String,
         val clips: List<Pair<Int, String>>, // index, server path
-        val credit: String?, val error: String?
+        val credit: String?,
+        val error: String?,
+        val progress: Int? = null
     )
 
     suspend fun clipStart(url: String, clipSec: Int, layout: String, credit: String, parts: Int): ClipJob =
@@ -162,11 +208,21 @@ class StudioClient(private val context: Context) {
                 JSONObject().put("url", url).put("clip_sec", clipSec)
                     .put("layout", layout).put("credit", credit).put("parts", parts)
             )
-            ClipJob(j.optString("id"), j.optString("status"), emptyList(), null, j.optString("error"))
+            ClipJob(
+                j.optString("id"),
+                j.optString("status"),
+                emptyList(),
+                null,
+                j.optString("error").takeIf { it.isNotBlank() && it != "null" },
+                j.progressValue()
+            )
         }
 
-    suspend fun clipWait(jobId: String): ClipJob = withContext(Dispatchers.IO) {
-        val j = awaitJob("/api/v1/clip/$jobId")
+    suspend fun clipWait(
+        jobId: String,
+        onProgress: (status: String, progress: Int?, error: String?) -> Unit = { _, _, _ -> }
+    ): ClipJob = withContext(Dispatchers.IO) {
+        val j = awaitJob("/api/v1/clip/$jobId", onProgress = onProgress)
         val status = j.optString("status")
         val error = j.optString("error").takeIf { it.isNotBlank() && it != "null" }
         if (status == "failed") throw IllegalStateException(error ?: "Clip generation failed on the server.")
@@ -180,9 +236,12 @@ class StudioClient(private val context: Context) {
         }
         if (clips.isEmpty()) throw IllegalStateException(error ?: "The server finished but did not produce any clips.")
         ClipJob(
-            j.optString("id", jobId), status, clips,
+            j.optString("id", jobId),
+            status,
+            clips,
             j.optString("credit").takeIf { it.isNotBlank() && it != "null" },
-            error
+            error,
+            j.progressValue()
         )
     }
 }

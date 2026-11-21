@@ -56,6 +56,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.droidcraft.app.jarvis.JarvisViewModel
 import com.droidcraft.app.ui.screens.PipelineScreen
 import com.droidcraft.app.ui.theme.CircuitBackdrop
 import com.droidcraft.app.viewmodel.YouTubeAutomationViewModel
@@ -65,6 +66,7 @@ private data class NavTab(val route: String, val label: String, val icon: ImageV
 @Composable
 fun DroidCraftNavHost(
     viewModel: YouTubeAutomationViewModel,
+    jarvisViewModel: JarvisViewModel,
     onTriggerVoiceInput: () -> Unit
 ) {
     val navController = rememberNavController()
@@ -81,8 +83,7 @@ fun DroidCraftNavHost(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            // Keep native navigation visible on every route, including the WebView HUD,
-            // so a rendering failure never traps the user on a blank first screen.
+            // Keep native navigation visible on every route so tool screens are never a dead end.
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 tabs.forEach { tab ->
                     NavigationBarItem(
@@ -111,12 +112,17 @@ fun DroidCraftNavHost(
             composable("jarvis") {
                 JarvisScreen(
                     liveViewModel = viewModel,
+                    jarvisViewModel = jarvisViewModel,
                     onOpenStudio = { navController.navigate("studio") },
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenChat = { navController.navigate("assistant") },
+                    onOpenLiveTalk = { navController.navigate("live") },
                     onOpenMore = { navController.navigate("more") },
-                    onOpenMemories = { navController.navigate("memories") },
-                    onOpenLanguage = { navController.navigate("language") },
+                    onOpenSocialHub = { navController.navigate("social") },
+                    onOpenClipper = { navController.navigate("clipper") },
+                    onOpenVoiceStudio = { navController.navigate("voice-studio") },
+                    onOpenDubbing = { navController.navigate("dubbing") },
+                    onOpenUploadHelper = { navController.navigate("upload-helper") },
                     isVisible = current == "jarvis"
                 )
             }
@@ -126,6 +132,7 @@ fun DroidCraftNavHost(
             composable("assistant") {
                 AssistantScreen(
                     viewModel = viewModel,
+                    jarvisVoiceViewModel = jarvisViewModel,
                     onTriggerVoiceInput = onTriggerVoiceInput,
                     onOpenSettings = { navController.navigate("settings") }
                 )
@@ -138,6 +145,9 @@ fun DroidCraftNavHost(
                 )
             }
             composable("dubbing") { com.droidcraft.app.studio.ui.DubbingScreen() }
+            composable("clipper") { com.droidcraft.app.studio.ui.ClipperScreen() }
+            composable("voice-studio") { com.droidcraft.app.studio.ui.VoiceStudioScreen() }
+            composable("upload-helper") { com.droidcraft.app.studio.ui.UploadHelperScreen() }
             composable("settings") {
                 SettingsScreen(viewModel) {
                     navController.navigate("live") {
@@ -220,6 +230,7 @@ private fun MoreScreen(onNavigate: (String) -> Unit) {
 @Composable
 fun AssistantScreen(
     viewModel: YouTubeAutomationViewModel,
+    jarvisVoiceViewModel: JarvisViewModel,
     onTriggerVoiceInput: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -229,6 +240,7 @@ fun AssistantScreen(
     val thinking by viewModel.isThinking.collectAsState()
     val activeModel by viewModel.activeGeminiModel.collectAsState()
     val speakReplies by viewModel.speakAssistantReplies.collectAsState()
+    val jarvisVoiceNotice by jarvisVoiceViewModel.voiceNotice.collectAsState()
     var input by remember { mutableStateOf("") }
 
     Column(
@@ -248,10 +260,14 @@ fun AssistantScreen(
                 }
                 Column(Modifier.weight(1f).padding(start = 11.dp)) {
                     Text("J.A.R.V.I.S. / CHAT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    Text("Creator copilot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Jarvis creator copilot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("${if (hasGeminiKey) "READY" else "SETUP REQUIRED"} · $activeModel", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = { viewModel.setSpeakAssistantReplies(!speakReplies) }) {
+                IconButton(onClick = {
+                    val enabled = !speakReplies
+                    viewModel.setSpeakAssistantReplies(enabled)
+                    if (!enabled) jarvisVoiceViewModel.stopSpeak()
+                }) {
                     Icon(
                         imageVector = if (speakReplies) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
                         contentDescription = if (speakReplies) "Turn spoken replies off" else "Turn spoken replies on",
@@ -261,6 +277,21 @@ fun AssistantScreen(
                 IconButton(onClick = onOpenSettings) {
                     Icon(Icons.Default.Settings, contentDescription = "Open settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+        }
+
+        jarvisVoiceNotice?.takeIf { it.isNotBlank() }?.let { notice ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    notice,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
 
@@ -348,7 +379,9 @@ fun AssistantScreen(
             IconButton(
                 onClick = {
                     if (input.isNotBlank()) {
-                        viewModel.sendAssistantMessage(input.trim())
+                        viewModel.sendAssistantMessage(input.trim()) { reply, emotion ->
+                            jarvisVoiceViewModel.speak(reply, emotion, force = true)
+                        }
                         input = ""
                     }
                 },

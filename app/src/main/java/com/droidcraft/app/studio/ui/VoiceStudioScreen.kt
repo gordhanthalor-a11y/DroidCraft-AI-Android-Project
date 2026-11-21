@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.studio.StudioSettings
 import com.droidcraft.app.studio.tts.Mp3Player
@@ -28,6 +29,7 @@ import com.droidcraft.app.studio.tts.TtsRequestException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 private val Cyan = Color(0xFF56EFF7)
 private val Slate = Color(0xFFA3BAC6)
@@ -272,8 +274,17 @@ fun VoiceStudioScreen() {
                 }
                 busy = true
                 status = "Awaaz बन रही है… server से audio आ रहा है"
+                val activityId = "studio-tts-${UUID.randomUUID()}"
+                HomeActivityTracker.begin(
+                    id = activityId,
+                    kind = "Voice Studio TTS",
+                    title = "Voice Studio · ${provider.uppercase()}",
+                    step = "Sending script to Creator Studio",
+                    progress = null
+                )
                 scope.launch {
                     try {
+                        HomeActivityTracker.update(activityId, "Synthesizing speech on Creator Studio")
                         val bytes = client.synthesize(
                             text = script,
                             provider = provider,
@@ -282,28 +293,49 @@ fun VoiceStudioScreen() {
                             sentenceMode = sentenceMode,
                             elevenKey = if (provider == "elevenlabs") VoiceSettings.elevenKey(context) else ""
                         )
+                        HomeActivityTracker.update(activityId, "Saving generated audio")
                         val f = client.saveMp3(bytes)
                         audioFile = f
                         status = "तैयार ✅ ${f.name} (${bytes.size / 1024} KB)"
+                        HomeActivityTracker.complete(activityId, "Audio ready · ${f.name}")
                     } catch (cancelled: CancellationException) {
+                        HomeActivityTracker.cancel(activityId, "Voice Studio synthesis was cancelled")
                         throw cancelled
                     } catch (error: TtsRequestException) {
                         if (provider == "elevenlabs" && error.isPaymentOrPlanError) {
+                            val serverFailure = error.message ?: "ElevenLabs plan or credits are unavailable."
+                            HomeActivityTracker.update(
+                                activityId,
+                                "Server voice unavailable; generating phone-voice WAV",
+                                note = "Server TTS failed: $serverFailure"
+                            )
                             try {
                                 val fallbackFile = client.synthesizePhoneWav(script, speed)
                                 audioFile = fallbackFile
                                 status = "ElevenLabs free plan par ye awaaz nahi chalegi — phone ki free voice se audio तैयार ✅ ${fallbackFile.name}"
+                                HomeActivityTracker.complete(
+                                    activityId,
+                                    "Phone WAV ready · ${fallbackFile.name}",
+                                    note = "Server TTS failed: $serverFailure. On-device phone TTS fallback succeeded."
+                                )
                             } catch (cancelled: CancellationException) {
+                                HomeActivityTracker.cancel(activityId, "Phone-voice fallback was cancelled")
                                 throw cancelled
                             } catch (fallbackError: Exception) {
                                 audioFile = null
-                                status = "ElevenLabs free plan par ye awaaz nahi chalegi. Phone ki free voice fallback भी नहीं बन पाई: ${fallbackError.message ?: "unknown error"}"
+                                val detail = "Server TTS failed: $serverFailure. Phone fallback failed: ${fallbackError.message ?: "unknown error"}"
+                                status = detail
+                                HomeActivityTracker.fail(activityId, detail)
                             }
                         } else {
-                            status = "Fail: ${error.message}"
+                            val detail = error.message ?: "Server TTS request failed."
+                            status = "Fail: $detail"
+                            HomeActivityTracker.fail(activityId, detail)
                         }
                     } catch (error: Exception) {
-                        status = "Fail: ${error.message}"
+                        val detail = error.message ?: "Voice Studio TTS failed without an error detail."
+                        status = "Fail: $detail"
+                        HomeActivityTracker.fail(activityId, detail)
                     } finally {
                         busy = false
                     }

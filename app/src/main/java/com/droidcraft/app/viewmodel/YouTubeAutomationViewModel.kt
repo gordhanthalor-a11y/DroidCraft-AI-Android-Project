@@ -12,14 +12,21 @@ import com.droidcraft.app.data.GeminiApiKeyStore
 import com.droidcraft.app.data.GeminiModelSettings
 import com.droidcraft.app.data.SecureKeyStore
 import com.droidcraft.app.data.YouTubeApiService
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.data.local.AppDatabase
+import com.droidcraft.app.jarvis.character.Emotion
+import com.droidcraft.app.jarvis.character.EmotionEngine
+import com.droidcraft.app.jarvis.character.JarvisCharacter
+import com.droidcraft.app.jarvis.voice.SpokenTextCleaner
 import com.droidcraft.app.jarvis.voice.VoiceSettings
 import com.droidcraft.app.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.UUID
 
 class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -76,13 +83,15 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
     private val _speakAssistantReplies = MutableStateFlow(prefs.getBoolean(PREF_CHAT_SPEAK_REPLIES, true))
     val speakAssistantReplies: StateFlow<Boolean> = _speakAssistantReplies.asStateFlow()
+    // Retained field name for compatibility; Chat replies route through Jarvis, while Live Talk
+    // alone uses this on-device engine as the last-resort audio fallback.
     private var chatTextToSpeech: TextToSpeech? = null
-    @Volatile private var chatTtsReady = false
-    @Volatile private var chatTtsInitializationFailed = false
-    @Volatile private var pendingChatSpeech: String? = null
+    @Volatile private var liveFallbackTtsReady = false
+    @Volatile private var liveFallbackTtsInitializationFailed = false
     private val liveFallbackSequence = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var liveFallbackUtteranceId: String? = null
     @Volatile private var pendingLivePhoneFallback: Pair<String, Long>? = null
+    @Volatile private var liveActivityId: String? = null
 
     private val _hasElevenLabsKey = MutableStateFlow(elevenLabsApiKey.isNotBlank())
     val hasElevenLabsKey: StateFlow<Boolean> = _hasElevenLabsKey.asStateFlow()
@@ -125,7 +134,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     init {
         loadChannels()
         loadVideosFromDb()
-        initializeChatTextToSpeech()
+        initializeLiveFallbackTextToSpeech()
     }
 
     fun loadChannels() {
@@ -272,10 +281,6 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     fun setSpeakAssistantReplies(enabled: Boolean) {
         _speakAssistantReplies.value = enabled
         prefs.edit().putBoolean(PREF_CHAT_SPEAK_REPLIES, enabled).apply()
-        if (!enabled) {
-            pendingChatSpeech = null
-            chatTextToSpeech?.stop()
-        }
     }
 
     fun saveElevenLabsKey(key: String) {
@@ -302,14 +307,30 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             _liveStatus.value == LiveConversationStatus.SPEAKING
         ) return
 
+        cancelLivePhoneFallback()
+        val previousActivityId = liveActivityId
+        liveActivityId = null
+        liveSession?.stop()
+        liveSession = null
+        previousActivityId?.let { HomeActivityTracker.complete(it, "Live Talk reconnecting") }
+
+        val activityId = "live-talk-${System.currentTimeMillis()}"
+        liveActivityId = activityId
+        HomeActivityTracker.begin(
+            id = activityId,
+            kind = "Live Talk",
+            title = "Live Talk session",
+            step = "Checking Gemini credentials",
+            progress = null
+        )
         if (geminiApiKey.isBlank()) {
             _liveStatus.value = LiveConversationStatus.ERROR
             _liveNotice.value = "Add your Gemini API key in Settings before starting Live Talk."
+            HomeActivityTracker.fail(activityId, _liveNotice.value.orEmpty())
+            liveActivityId = null
             return
         }
 
-        cancelLivePhoneFallback()
-        liveSession?.stop()
         synchronized(pendingLiveTextLock) { pendingLiveTexts.clear() }
         _liveMessages.value = emptyList()
         _liveUserDraft.value = ""
@@ -327,6 +348,11 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         }
         _liveEffectiveVoice.value = sessionVoice
         _liveStatus.value = LiveConversationStatus.CONNECTING
+        HomeActivityTracker.update(
+            activityId,
+            "Connecting to Gemini Live",
+            note = "Live voice mode: ${sessionVoice.name.lowercase().replace('_', ' ')}"
+        )
 
         liveSession = GeminiLiveVoiceSession(
             context = getApplication<Application>(),
@@ -336,6 +362,31 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             listener = object : com.droidcraft.app.ai.LiveVoiceSessionListener {
                 override fun onStatus(status: LiveConversationStatus, message: String?) {
                     _liveStatus.value = status
+                    val activityId = liveActivityId
+                    when (status) {
+                        LiveConversationStatus.CONNECTING -> activityId?.let {
+                            HomeActivityTracker.update(it, "Connecting to Gemini Live", note = message)
+                        }
+                        LiveConversationStatus.LISTENING -> activityId?.let {
+                            HomeActivityTracker.update(it, "Listening for your next turn", note = message)
+                        }
+                        LiveConversationStatus.SPEAKING -> activityId?.let {
+                            HomeActivityTracker.update(it, "Jarvis is speaking", note = message)
+                        }
+                        LiveConversationStatus.ERROR -> {
+                            activityId?.let {
+                                HomeActivityTracker.fail(
+                                    it,
+                                    message ?: "Live Talk connection failed without an error detail."
+                                )
+                            }
+                            liveActivityId = null
+                        }
+                        LiveConversationStatus.IDLE -> {
+                            activityId?.let { HomeActivityTracker.complete(it, "Live Talk session stopped") }
+                            liveActivityId = null
+                        }
+                    }
                     if (status == LiveConversationStatus.ERROR || status == LiveConversationStatus.IDLE) {
                         cancelLivePhoneFallback()
                     }
@@ -355,6 +406,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
                 override fun onUserTranscript(text: String, isFinal: Boolean) {
                     if (isFinal) {
                         appendLiveMessage(text, isUser = true)
+                        liveActivityId?.let { HomeActivityTracker.update(it, "Received your live transcript") }
                         _liveUserDraft.value = ""
                     } else {
                         _liveUserDraft.value = text
@@ -367,6 +419,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
                 override fun onAssistantMessage(text: String) {
                     appendLiveMessage(text, isUser = false)
+                    liveActivityId?.let { HomeActivityTracker.update(it, "Jarvis reply delivered") }
                     _liveAssistantDraft.value = ""
                 }
 
@@ -388,6 +441,9 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
                 override fun onPhoneTtsFallback(text: String, reason: String) {
                     _liveNotice.value = reason
+                    liveActivityId?.let {
+                        HomeActivityTracker.update(it, "Gemini Live audio fallback · Android phone TTS", note = reason)
+                    }
                     speakLivePhoneFallback(text)
                 }
             }
@@ -396,6 +452,9 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
 
     fun stopLiveConversation() {
         cancelLivePhoneFallback()
+        val activityId = liveActivityId
+        liveActivityId = null
+        activityId?.let { HomeActivityTracker.complete(it, "Live Talk session stopped") }
         liveSession?.stop()
         liveSession = null
         synchronized(pendingLiveTextLock) { pendingLiveTexts.clear() }
@@ -447,28 +506,53 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    fun sendAssistantMessage(userText: String) {
-        val userMsg = ChatMessage(id = System.currentTimeMillis().toString(), text = userText, isUser = true)
+    fun sendAssistantMessage(
+        userText: String,
+        speakReply: (text: String, emotion: Emotion) -> Unit
+    ) {
+        val displayText = userText.trim()
+        if (displayText.isBlank()) return
+        val activityId = "chat-${UUID.randomUUID()}"
+        HomeActivityTracker.begin(
+            id = activityId,
+            kind = "Chat",
+            title = "Jarvis Chat reply",
+            step = "Preparing your message",
+            progress = null
+        )
+        val userMsg = ChatMessage(id = System.currentTimeMillis().toString(), text = displayText, isUser = true)
         _assistantMessages.value = _assistantMessages.value + userMsg
         val key = geminiApiKey
         if (key.isBlank()) {
+            val notice = "Add a Gemini API key in Settings before starting a Chat conversation."
             addBotMessage("Pehle Settings mein Gemini API key add kijiye.")
+            HomeActivityTracker.fail(activityId, notice)
             return
         }
         viewModelScope.launch {
             _isThinking.value = true
+            HomeActivityTracker.update(activityId, "Waiting for Gemini to draft Jarvis's reply")
             try {
                 val history = _assistantMessages.value.map { it.isUser to it.text }
                 val reply = GeminiClient(
                     apiKey = key,
+                    systemPrompt = JarvisCharacter.defaultSystemPrompt(),
                     modelOrder = _geminiModelOrder.value,
                     onModelSelected = { model -> _activeGeminiModel.value = model }
                 ).reply(history)
-                val spokenReply = reply.ifBlank { "(Khaali jawab mila, dobara puchiye)" }
-                addBotMessage(spokenReply)
-                speakChatReply(spokenReply)
+                val displayReply = reply.ifBlank { "(Khaali jawab mila, dobara puchiye)" }
+                addBotMessage(displayReply)
+                HomeActivityTracker.complete(activityId, "Jarvis replied in Chat")
+                if (_speakAssistantReplies.value) {
+                    runCatching { speakReply(displayReply, EmotionEngine.detect(displayText, displayReply)) }
+                }
+            } catch (cancelled: CancellationException) {
+                HomeActivityTracker.cancel(activityId, "Chat request was cancelled")
+                throw cancelled
             } catch (e: Exception) {
-                addBotMessage("Jawab nahi mil paya: ${e.message ?: "internet check kariye"}")
+                val detail = e.message ?: "internet check kariye"
+                addBotMessage("Jawab nahi mil paya: $detail")
+                HomeActivityTracker.fail(activityId, detail)
             } finally {
                 _isThinking.value = false
             }
@@ -489,7 +573,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             ChatMessage(id = (System.currentTimeMillis() + 1).toString(), text = text, isUser = false)
     }
 
-    private fun initializeChatTextToSpeech() {
+    private fun initializeLiveFallbackTextToSpeech() {
         chatTextToSpeech = TextToSpeech(getApplication()) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 val engine = chatTextToSpeech
@@ -499,6 +583,7 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
                     override fun onDone(utteranceId: String?) {
                         if (utteranceId != liveFallbackUtteranceId) return
                         liveFallbackUtteranceId = null
+                        liveActivityId?.let { HomeActivityTracker.update(it, "Phone fallback finished; listening") }
                         if (_liveStatus.value == LiveConversationStatus.SPEAKING) {
                             _liveStatus.value = LiveConversationStatus.LISTENING
                         }
@@ -508,27 +593,29 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
                     override fun onError(utteranceId: String?) {
                         if (utteranceId != liveFallbackUtteranceId) return
                         liveFallbackUtteranceId = null
-                        _liveNotice.value = "Android phone TTS could not speak this reply."
+                        val notice = "Android phone TTS could not speak this reply."
+                        _liveNotice.value = notice
+                        liveActivityId?.let { HomeActivityTracker.update(it, "Phone TTS fallback failed", note = notice) }
                         if (_liveStatus.value == LiveConversationStatus.SPEAKING) {
                             _liveStatus.value = LiveConversationStatus.LISTENING
                         }
                     }
                 })
-                chatTtsReady = true
-                chatTtsInitializationFailed = false
-                val pending = pendingChatSpeech
-                pendingChatSpeech = null
-                if (pending != null) speakChatReply(pending)
+                liveFallbackTtsReady = true
+                liveFallbackTtsInitializationFailed = false
                 val liveFallback = pendingLivePhoneFallback
                 pendingLivePhoneFallback = null
                 if (liveFallback != null && liveFallback.second == liveFallbackSequence.get()) {
                     speakLivePhoneFallback(liveFallback.first, liveFallback.second)
                 }
             } else {
-                chatTtsInitializationFailed = true
+                liveFallbackTtsInitializationFailed = true
+                liveFallbackTtsReady = false
                 pendingLivePhoneFallback = null
                 if (_liveStatus.value == LiveConversationStatus.SPEAKING) {
-                    _liveNotice.value = "Android phone TTS could not start as a fallback voice."
+                    val notice = "Android phone TTS could not start as a Live Talk fallback voice."
+                    _liveNotice.value = notice
+                    liveActivityId?.let { HomeActivityTracker.update(it, "Phone TTS fallback unavailable", note = notice) }
                     _liveStatus.value = LiveConversationStatus.LISTENING
                 }
             }
@@ -536,22 +623,25 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private fun speakLivePhoneFallback(text: String, sequence: Long = liveFallbackSequence.incrementAndGet()) {
-        if (text.isBlank() || sequence != liveFallbackSequence.get()) return
+        val spokenText = SpokenTextCleaner.clean(text)
+        if (spokenText.isBlank() || sequence != liveFallbackSequence.get()) return
         viewModelScope.launch {
             if (sequence != liveFallbackSequence.get()) return@launch
-            if (chatTtsInitializationFailed) {
-                _liveNotice.value = "Gemini TTS failed and Android phone TTS is unavailable on this device."
+            if (liveFallbackTtsInitializationFailed) {
+                val notice = "Gemini Live audio failed and Android phone TTS is unavailable on this device."
+                _liveNotice.value = notice
+                liveActivityId?.let { HomeActivityTracker.update(it, "Phone TTS fallback unavailable", note = notice) }
                 if (_liveStatus.value == LiveConversationStatus.SPEAKING) {
                     _liveStatus.value = LiveConversationStatus.LISTENING
                 }
                 return@launch
             }
             val engine = chatTextToSpeech
-            if (engine == null || !chatTtsReady) {
-                pendingLivePhoneFallback = text to sequence
+            if (engine == null || !liveFallbackTtsReady) {
+                pendingLivePhoneFallback = spokenText to sequence
                 return@launch
             }
-            val locale = if (text.any { it.code in 0x0900..0x097F }) Locale("hi", "IN") else Locale.US
+            val locale = if (spokenText.any { it.code in 0x0900..0x097F }) Locale("hi", "IN") else Locale.US
             val languageStatus = runCatching { engine.setLanguage(locale) }
                 .getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
             if (languageStatus < TextToSpeech.LANG_AVAILABLE) {
@@ -560,10 +650,12 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
             engine.setSpeechRate(1.0f)
             val utteranceId = "live_fallback_$sequence"
             liveFallbackUtteranceId = utteranceId
-            val result = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            val result = engine.speak(spokenText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
             if (result == TextToSpeech.ERROR && liveFallbackUtteranceId == utteranceId) {
                 liveFallbackUtteranceId = null
-                _liveNotice.value = "Android phone TTS could not start this reply."
+                val notice = "Android phone TTS could not start this reply."
+                _liveNotice.value = notice
+                liveActivityId?.let { HomeActivityTracker.update(it, "Phone TTS fallback failed", note = notice) }
                 if (_liveStatus.value == LiveConversationStatus.SPEAKING) {
                     _liveStatus.value = LiveConversationStatus.LISTENING
                 }
@@ -581,22 +673,6 @@ class YouTubeAutomationViewModel(application: Application) : AndroidViewModel(ap
                 if (liveFallbackUtteranceId == null) runCatching { chatTextToSpeech?.stop() }
             }
         }
-    }
-
-    private fun speakChatReply(text: String) {
-        if (!_speakAssistantReplies.value || text.isBlank()) return
-        val engine = chatTextToSpeech
-        if (engine == null || !chatTtsReady) {
-            pendingChatSpeech = text
-            return
-        }
-        val locale = if (text.any { it.code in 0x0900..0x097F }) Locale("hi", "IN") else Locale.US
-        val languageStatus = runCatching { engine.setLanguage(locale) }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
-        if (languageStatus < TextToSpeech.LANG_AVAILABLE) {
-            runCatching { engine.setLanguage(Locale.getDefault()) }
-        }
-        engine.setSpeechRate(1.0f)
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "assistant_${System.currentTimeMillis()}")
     }
 
     fun confirmPendingAction() {

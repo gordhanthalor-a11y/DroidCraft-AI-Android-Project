@@ -16,9 +16,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.droidcraft.app.activity.HomeActivityTracker
 import com.droidcraft.app.studio.StudioClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 private val Cyan = Color(0xFF56EFF7)
 private val Slate = Color(0xFFA3BAC6)
@@ -126,15 +129,48 @@ fun ClipperScreen() {
                 if (url.isBlank()) { status = "पहले link डालो"; return@Button }
                 if (credit.isBlank()) { status = "Original creator का credit handle डालें"; return@Button }
                 busy = true; status = "Server download + cutting शुरू…"
+                val activityId = "clip-${UUID.randomUUID()}"
+                val sourceName = url.trim().substringAfter("://", url.trim()).take(48)
+                HomeActivityTracker.begin(
+                    id = activityId,
+                    kind = "Clipper",
+                    title = "Clip job · $sourceName",
+                    step = "Submitting source link",
+                    progress = null
+                )
                 scope.launch {
-                    runCatching {
+                    try {
                         val job = client.clipStart(url.trim(), clipSec, selectedLayout.apiValue, credit, parts)
-                        val done = client.clipWait(job.id)
+                        HomeActivityTracker.update(
+                            activityId,
+                            clipActivityStep(job.status),
+                            progress = job.progress
+                        )
+                        val done = client.clipWait(job.id) { serverStatus, serverProgress, error ->
+                            if (serverStatus == "failed") {
+                                HomeActivityTracker.fail(activityId, error ?: "Clip server reported a failure.")
+                            } else {
+                                HomeActivityTracker.update(
+                                    activityId,
+                                    clipActivityStep(serverStatus),
+                                    progress = serverProgress
+                                )
+                            }
+                        }
                         clipList = done.clips
-                        progress = 100
+                        progress = done.progress ?: 100
                         status = "${done.clips.size} clips तैयार ✅"
-                    }.onFailure { status = "Fail: ${it.message}" }
-                    busy = false
+                        HomeActivityTracker.complete(activityId, "${done.clips.size} clips ready")
+                    } catch (cancelled: CancellationException) {
+                        HomeActivityTracker.cancel(activityId, "Clip generation was cancelled")
+                        throw cancelled
+                    } catch (error: Exception) {
+                        val detail = error.message ?: "Clip generation failed without a server detail."
+                        status = "Fail: $detail"
+                        HomeActivityTracker.fail(activityId, detail)
+                    } finally {
+                        busy = false
+                    }
                 }
             },
             enabled = !busy, modifier = Modifier.fillMaxWidth()
@@ -182,4 +218,12 @@ fun ClipperScreen() {
             }
         }
     }
+}
+
+private fun clipActivityStep(status: String): String = when (status.lowercase()) {
+    "downloading" -> "Downloading source video"
+    "cutting" -> "Rendering vertical clips"
+    "done" -> "Clip render completed"
+    "failed" -> "Clip job failed on the server"
+    else -> "Clip server status · $status"
 }
