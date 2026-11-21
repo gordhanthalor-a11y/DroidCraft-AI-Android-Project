@@ -67,6 +67,7 @@ class ContactResolver(private val context: Context) {
         val all = loadContacts()
         if (all.isEmpty()) return emptyList()
         val qFlat = stripMatras(q)
+        if (qFlat.isBlank()) return emptyList()
         val scored = all.mapNotNull { contact ->
             val name = contact.name.lowercase(Locale.ROOT)
             val nameFlat = stripMatras(name)
@@ -77,7 +78,7 @@ class ContactResolver(private val context: Context) {
                 nameFlat == qFlat -> 95
                 tokens.any { it.startsWith(q) } || tokenFlat.any { it.startsWith(qFlat) } -> 85
                 name.contains(q) || nameFlat.contains(qFlat) -> 75
-                else -> (similarity(qFlat, nameFlat) * 100).toInt().takeIf { it >= 60 } ?: 0
+                else -> (similarity(qFlat, nameFlat) * 100).toInt().takeIf { it >= 60 }?.let { min(59, it) } ?: 0
             }
             if (score > 0) contact to score else null
         }
