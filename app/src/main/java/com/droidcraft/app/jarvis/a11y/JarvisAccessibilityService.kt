@@ -380,7 +380,7 @@ private fun normalize(value: String): String =
             val normalized = normalize(label)
                         val score = when {
                 normalized == needle -> 100
-                normalized.replace(" ") == needle.replace(" ") -> 95
+                normalized.replace(" ", "") == needle.replace(" ", "") -> 95
                 stripMatras(normalized) == stripMatras(needle) -> 90
                 normalized.startsWith(needle) -> 80
                 normalized.contains(needle) -> 60
