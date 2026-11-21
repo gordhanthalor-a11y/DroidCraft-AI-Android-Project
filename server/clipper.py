@@ -44,9 +44,10 @@ def cut(job_id: str, url: str, clip_sec: int = 60,
         try:
             work_dir = Path(tempfile.mkdtemp(prefix="clip_"))
             src = work_dir / "source.mp4"
+            _ck = ["--cookies", "/tmp/yt_cookies.txt"] if Path("/tmp/yt_cookies.txt").exists() else []
             r = subprocess.run(
                 ["yt-dlp", "-f", "bv*[height<=1080]+ba/b", "--merge-output-format", "mp4",
-                  "--extractor-args", "youtube:player_client=android,tv,web,ios",
+                  "--extractor-args", "youtube:player_client=android,tv,web,ios", *_ck,
                  "-o", str(src), url], capture_output=True, text=True, timeout=1800)
             if r.returncode != 0 or not src.exists():
                 job.update(status="failed", error=f"download fail: {r.stderr[:300]}")
